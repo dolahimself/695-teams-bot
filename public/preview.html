@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bear Friends Desk preview</title>
+<style>
+  :root { --brand:#5B5FC7; --ink:#242424; --mute:#616161; --line:#E0E0E0; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#E9E9EE; font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif; color:var(--ink); }
+  .bar { display:flex; gap:8px; align-items:center; justify-content:center; padding:12px; flex-wrap:wrap; }
+  .bar button { border:1px solid #C8C8C8; background:#fff; border-radius:8px; padding:8px 14px; font:inherit; cursor:pointer; }
+  .bar button.on { background:var(--brand); color:#fff; border-color:var(--brand); }
+  .bar .note { color:var(--mute); font-size:13px; width:100%; text-align:center; }
+  .stage { display:flex; justify-content:center; padding:8px 12px 32px; }
+  .app { width:390px; max-width:100%; height:780px; max-height:calc(100vh - 110px); min-height:560px; background:#fff; border-radius:28px; border:1px solid #CFCFCF; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 8px 30px rgba(0,0,0,.12); }
+  .app.desktop { width:900px; border-radius:12px; }
+  .head { display:flex; align-items:center; gap:10px; padding:12px 14px; border-bottom:1px solid #E6E6E6; }
+  .head img { width:44px; height:44px; border-radius:50%; }
+  .head b { font-size:18px; display:block; } .head span { font-size:13px; color:var(--mute); }
+  .msgs { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:12px; }
+  .row { display:flex; } .row.user { justify-content:flex-end; }
+  .bubble { max-width:84%; padding:11px 15px; border-radius:20px; font-size:16px; line-height:1.35; white-space:pre-wrap; }
+  .bot .bubble { background:#F0F0F0; } .user .bubble { background:var(--brand); color:#fff; }
+  .cardwrap { width:100%; background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px; }
+  .desktop .cardwrap { max-width:520px; } .desktop .bubble { font-size:14px; border-radius:6px; }
+  .desktop .bot .bubble { background:#F5F5F5; }
+  .composer { display:flex; align-items:center; gap:8px; padding:10px 12px 14px; border-top:1px solid #EEE; }
+  .composer .plus { width:42px; height:42px; border-radius:50%; background:var(--brand); color:#fff; border:0; font-size:24px; cursor:pointer; flex:none; }
+  .composer input[type=text] { flex:1; min-width:0; border:1px solid #C8C8C8; border-radius:22px; padding:11px 16px; font:inherit; font-size:16px; }
+  .composer button.send { border:0; background:none; color:var(--brand); font:inherit; font-weight:600; cursor:pointer; padding:8px; }
+  .ac-pushButton { cursor:pointer; min-height:44px; border-radius:8px !important; border:1.5px solid var(--brand) !important; background:#fff !important; color:var(--brand) !important; font:600 16px Inter,'Segoe UI',sans-serif !important; }
+  .ac-pushButton.style-positive { background:var(--brand) !important; color:#fff !important; }
+  .ac-pushButton div { color:inherit !important; font:inherit !important; }
+  textarea.ac-input, input.ac-input { border:1px solid #C8C8C8 !important; border-radius:6px !important; padding:10px 12px !important; font-size:15px !important; min-height:44px; }
+  .ac-input { font-family: inherit; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <button id="phone" class="on">Phone</button>
+  <button id="desk">Desktop</button>
+  <button id="reset">Start over</button>
+  <div class="note">Preview of the Teams story card. Same flow and same card as the bot. Nothing is saved.</div>
+</div>
+<div class="stage"><div class="app" id="app">
+  <div class="head"><img src="/assets/bear.png" alt=""><div><b>Bear Friends Desk</b><span>Share a story</span></div></div>
+  <div class="msgs" id="msgs"></div>
+  <form class="composer" id="composer">
+    <button type="button" class="plus" id="plus" title="Attach a photo, audio or video">+</button>
+    <input type="file" id="file" hidden>
+    <input type="text" id="text" placeholder="Type a message" autocomplete="off">
+    <button class="send" type="submit">Send</button>
+  </form>
+</div></div>
+<script src="/ac.js"></script>
+<script>
+const sid = Math.random().toString(36).slice(2);
+const msgs = document.getElementById('msgs');
+let cardWrap = null;
+
+AdaptiveCards.AdaptiveCard.onProcessMarkdown = (t, r) => { r.outputHtml = t.replace(/&/g,'&amp;').replace(/</g,'&lt;'); r.didProcess = true; };
+const hostConfig = new AdaptiveCards.HostConfig({
+  fontFamily: 'Inter, "Segoe UI", system-ui, sans-serif',
+  spacing: { small: 6, default: 10, medium: 14, large: 20, extraLarge: 28, padding: 0 },
+  fontSizes: { small: 12, default: 15, medium: 16, large: 19, extraLarge: 24 },
+  containerStyles: {
+    default: { backgroundColor: '#FFFFFF', foregroundColors: { default: { default: '#242424', subtle: '#616161' }, accent: { default: '#5B5FC7', subtle: '#5B5FC7' }, attention: { default: '#C4314B', subtle: '#C4314B' }, good: { default: '#107C10', subtle: '#107C10' }, warning: { default: '#8A6D00', subtle: '#8A6D00' }, dark: { default: '#242424', subtle: '#616161' }, light: { default: '#FFFFFF', subtle: '#EEEEEE' } } },
+    emphasis: { backgroundColor: '#F5F5F5', foregroundColors: { default: { default: '#242424', subtle: '#616161' } } },
+    accent: { backgroundColor: '#EEF0FB', borderColor: '#C9CCF2', foregroundColors: { default: { default: '#242424', subtle: '#616161' } } },
+    attention: { backgroundColor: '#FDE7E9', borderColor: '#C4314B', foregroundColors: { default: { default: '#242424', subtle: '#616161' } } },
+    good: { backgroundColor: '#E7F4E8', borderColor: '#107C10', foregroundColors: { default: { default: '#242424', subtle: '#616161' } } }
+  },
+  actions: { actionsOrientation: 'vertical', actionAlignment: 'stretch', buttonSpacing: 8, showCard: { actionMode: 'inline', inlineTopMargin: 8 }, maxActions: 5, spacing: 'default' },
+  inputs: { label: { requiredInputs: { weight: 'bolder', suffix: '' }, optionalInputs: { weight: 'bolder' } }, errorMessage: { color: 'attention' } },
+});
+
+function bubble(kind, text) {
+  const row = document.createElement('div'); row.className = 'row ' + kind;
+  const b = document.createElement('div'); b.className = 'bubble'; b.textContent = text; row.appendChild(b);
+  msgs.appendChild(row); msgs.scrollTop = msgs.scrollHeight;
+}
+
+function drawCard(json, inPlace) {
+  const card = new AdaptiveCards.AdaptiveCard();
+  card.hostConfig = hostConfig;
+  card.parse(json);
+  card.onExecuteAction = (action) => {
+    if (!(action instanceof AdaptiveCards.SubmitAction)) return;
+    const data = Object.assign({}, action.data || {});
+    for (const i of card.getAllInputs()) data[i.id] = i.value;
+    send(fromCard(data));
+  };
+  const el = card.render();
+  const wrap = document.createElement('div'); wrap.className = 'row bot';
+  const inner = document.createElement('div'); inner.className = 'cardwrap'; inner.appendChild(el); wrap.appendChild(inner);
+  if (inPlace && cardWrap && cardWrap.parentNode) msgs.replaceChild(wrap, cardWrap); else msgs.appendChild(wrap);
+  cardWrap = wrap; msgs.scrollTop = msgs.scrollHeight;
+}
+
+function fromCard(d) {
+  if (d.action === 'review') return { type: 'review', values: { program: d.program || '', whatHappened: d.whatHappened || '', whatChanged: d.whatChanged || '' } };
+  return { type: d.action };
+}
+
+async function send(event) {
+  const res = await fetch('/event', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sid, event }) });
+  const r = await res.json();
+  if (r.card) {
+    if (r.greeting) bubble('bot', r.greeting);
+    drawCard(r.card, !r.newMessage && !!cardWrap);
+  }
+  if (r.say) bubble('bot', r.say);
+}
+
+document.getElementById('composer').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const t = document.getElementById('text'); const v = t.value.trim(); if (!v) return; t.value = '';
+  bubble('user', v);
+  const lower = v.toLowerCase().replace(/[.!]+$/, '');
+  const type = ['start over','restart','new story'].includes(lower) ? 'startOver' : ['cancel','stop','quit','exit'].includes(lower) ? 'cancel' : lower === 'help' ? 'help' : null;
+  send(type ? { type } : { type: 'text', text: v });
+});
+document.getElementById('plus').onclick = () => document.getElementById('file').click();
+document.getElementById('file').onchange = (e) => {
+  const f = e.target.files[0]; if (!f) return; e.target.value = '';
+  bubble('user', f.name); send({ type: 'file', file: { name: f.name, url: 'preview://' + f.name } });
+};
+const app = document.getElementById('app');
+const setMode = (m) => { app.classList.toggle('desktop', m === 'desk'); document.getElementById('phone').classList.toggle('on', m === 'phone'); document.getElementById('desk').classList.toggle('on', m === 'desk'); };
+document.getElementById('phone').onclick = () => setMode('phone');
+document.getElementById('desk').onclick = () => setMode('desk');
+document.getElementById('reset').onclick = () => { msgs.innerHTML = ''; cardWrap = null; send({ type: 'start' }); };
+send({ type: 'start' });
+</script>
+</body>
+</html>
