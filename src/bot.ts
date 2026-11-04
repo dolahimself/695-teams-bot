@@ -1,6 +1,12 @@
-import { ActivityHandler, Attachment, TurnContext } from 'botbuilder';
+import {
+  Attachment,
+  TaskModuleRequest,
+  TaskModuleResponse,
+  TeamsActivityHandler,
+  TurnContext,
+} from 'botbuilder';
 import { buildCardActivity } from './card';
-import { Event, FileRef, Out, Session, newSession, parseText, step, viewOf } from './flow';
+import { Event, FileRef, Out, Session, Values, newSession, parseText, step, viewOf } from './flow';
 import type { StoryStore } from './store';
 
 const TEAMS_FILE = 'application/vnd.microsoft.teams.file.download.info';
@@ -21,16 +27,23 @@ interface Slot {
   session: Session;
   /** Id of the live story card, so file attachments can update it in place. */
   cardId?: string;
+  /** What was typed on the card when the upload dialog opened, so it is not lost. */
+  typed?: Values;
 }
 
 /**
  * Sessions live in memory: fine for a prototype with a handful of testers.
  * Before real use, swap this Map for ConversationState with Azure Blob or Cosmos storage.
  */
-export class BearFriendsBot extends ActivityHandler {
+export class BearFriendsBot extends TeamsActivityHandler {
   private slots = new Map<string, Slot>();
 
-  constructor(private store: StoryStore, private programs: string[]) {
+  constructor(
+    private store: StoryStore,
+    private programs: string[],
+    /** Gives the address of the upload page for the dialog. Without it the button explains how to attach in the chat. */
+    private attachUrl?: () => string,
+  ) {
     super();
 
     this.onMembersAdded(async (context, next) => {
@@ -59,6 +72,17 @@ export class BearFriendsBot extends ActivityHandler {
               whatChanged: String(value!.whatChanged ?? ''),
             },
           };
+        } else if (act === 'removeFile') {
+          event = {
+            type: 'removeFile',
+            index: Number(value!.index),
+            values: 'whatHappened' in value!
+              ? { program: String(value!.program ?? ''), whatHappened: String(value!.whatHappened ?? ''), whatChanged: String(value!.whatChanged ?? '') }
+              : undefined,
+          };
+        } else if (act === 'addMedia') {
+          await context.sendActivity('Use the + button next to the message box to attach photos or videos in this chat. They will show on your card.');
+          return next();
         } else if (act === 'edit' || act === 'send' || act === 'again') {
           event = { type: act };
         } else {
@@ -67,13 +91,37 @@ export class BearFriendsBot extends ActivityHandler {
       } else {
         const files = toFiles(a.attachments);
         event = files.length
-          ? { type: 'file', file: files[0] }
+          ? { type: 'file', files }
           : parseText(TurnContext.removeRecipientMention(a) ?? a.text ?? '');
       }
 
       await this.run_(context, event, fromCard ? a.replyToId : undefined);
       await next();
     });
+  }
+
+  /** The worker tapped "Add photos or videos": open the upload dialog. */
+  protected async handleTeamsTaskModuleFetch(context: TurnContext, req: TaskModuleRequest): Promise<TaskModuleResponse> {
+    const slot = this.slot(context);
+    const d = (req.data ?? {}) as Record<string, unknown>;
+    slot.typed = 'whatHappened' in d
+      ? { program: String(d.program ?? ''), whatHappened: String(d.whatHappened ?? ''), whatChanged: String(d.whatChanged ?? '') }
+      : undefined;
+    if (!this.attachUrl) {
+      return { task: { type: 'message', value: 'Attach photos or videos in the chat with the + button instead.' } };
+    }
+    const url = this.attachUrl();
+    return { task: { type: 'continue', value: { title: 'Add photos or videos', url, fallbackUrl: url, width: 'medium', height: 'large' } } };
+  }
+
+  /** The dialog closed with the uploaded files: put them in the card's collection box. */
+  protected async handleTeamsTaskModuleSubmit(context: TurnContext, req: TaskModuleRequest): Promise<TaskModuleResponse> {
+    const slot = this.slot(context);
+    const data = (req.data ?? {}) as { files?: FileRef[] };
+    const files = (data.files ?? []).filter((f) => f && f.url && f.name);
+    if (files.length) await this.run_(context, { type: 'file', files, values: slot.typed }, slot.cardId);
+    slot.typed = undefined;
+    return undefined as unknown as TaskModuleResponse; // an empty reply closes the dialog
   }
 
   private slot(context: TurnContext): Slot {

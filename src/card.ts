@@ -1,5 +1,5 @@
 import { CardFactory, MessageFactory } from 'botbuilder';
-import { GREETING, PRIVACY_NOTE, View } from './flow';
+import { FileKind, GREETING, MAX_FILES, PRIVACY_NOTE, View, fileKind } from './flow';
 
 /**
  * Builds the Adaptive Card for each state. One card does the whole job, so
@@ -22,6 +22,50 @@ function fact(label: string, value: string) {
 
 function banner(message: string, style: 'attention' | 'good' | 'accent') {
   return { type: 'Container', style, bleed: false, items: [text(message)] };
+}
+
+const KIND_LABEL: Record<FileKind, string> = { photo: 'Photo', video: 'Video', audio: 'Audio', file: 'File' };
+
+/** The collection box: every photo or video attached to this story, with a way to take one off. */
+function attachments(view: View, editable: boolean) {
+  const n = view.files.length;
+  const items: unknown[] = [
+    text(n ? `PHOTOS AND VIDEOS (${n})` : 'PHOTOS AND VIDEOS', { size: 'Small', weight: 'Bolder', isSubtle: true }),
+  ];
+  view.files.forEach((f, i) => {
+    items.push({
+      type: 'ColumnSet',
+      spacing: 'Small',
+      columns: [
+        { type: 'Column', width: 'auto', verticalContentAlignment: 'Center', items: [text(KIND_LABEL[fileKind(f)], { size: 'Small', color: 'Accent', weight: 'Bolder' })] },
+        { type: 'Column', width: 'stretch', verticalContentAlignment: 'Center', items: [text(f.name)] },
+        ...(editable
+          ? [{
+              type: 'Column',
+              width: 'auto',
+              items: [{ type: 'ActionSet', actions: [{ type: 'Action.Submit', title: 'Remove', data: { action: 'removeFile', index: i } }] }],
+            }]
+          : []),
+      ],
+    });
+  });
+  if (!n) items.push(text('None yet', { spacing: 'None', isSubtle: true }));
+  if (editable && n < MAX_FILES) {
+    items.push({
+      type: 'ActionSet',
+      spacing: 'Small',
+      actions: [
+        {
+          type: 'Action.Submit',
+          title: n ? 'Add more photos or videos' : 'Add photos or videos',
+          // Teams opens a dialog with a real file picker (see attach.ts).
+          data: { action: 'addMedia', msteams: { type: 'task/fetch' } },
+        },
+      ],
+    });
+    items.push(text(`Up to ${MAX_FILES} per story.`, { size: 'Small', isSubtle: true, spacing: 'None' }));
+  }
+  return { type: 'Container', style: 'emphasis', spacing: 'Medium', items };
 }
 
 export function buildCardJson(view: View): Record<string, unknown> {
@@ -59,25 +103,20 @@ export function buildCardJson(view: View): Record<string, unknown> {
       maxLength: 1000,
       value: v.whatChanged ?? '',
     });
+    body.push(attachments(view, true));
     actions.push({ type: 'Action.Submit', title: 'Review story', style: 'positive', data: { action: 'review' } });
   } else {
     body.push(text(view.kind === 'sent' ? 'Your story' : 'Check your story', { size: 'Large', weight: 'Bolder' }));
     body.push(
       view.kind === 'sent'
-        ? banner('Sent. Laura will review it before anything is used.', 'good')
+        ? banner('Sent. The Foundation team will review it before anything is used.', 'good')
         : banner('Nothing is sent until you tap Send for review.', 'accent'),
     );
     body.push(fact('Program', v.program ?? ''));
     body.push(fact('What happened', v.whatHappened ?? ''));
     body.push(fact('What changed', v.whatChanged ?? ''));
-    body.push(fact('File', view.file ? view.file.name : 'none'));
+    body.push(attachments(view, view.kind === 'review'));
     if (view.kind === 'review') {
-      body.push(
-        text('Want to add a photo, audio or video? Attach it in this chat before you send.', {
-          isSubtle: true,
-          spacing: 'Medium',
-        }),
-      );
       actions.push({ type: 'Action.Submit', title: 'Send for review', style: 'positive', data: { action: 'send' } });
       actions.push({ type: 'Action.Submit', title: 'Edit', data: { action: 'edit' } });
     } else {

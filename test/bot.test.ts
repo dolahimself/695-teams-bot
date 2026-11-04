@@ -39,7 +39,7 @@ test('Teams: hello opens ONE message with the greeting and the card; card button
   await tap({ action: 'send' });
   assert.equal(saved.length, 1);
   assert.equal(saved[0].program, 'Camp');
-  assert.match(JSON.stringify(updated[1].attachments[0].content), /Sent\. Laura will review/);
+  assert.match(JSON.stringify(updated[1].attachments[0].content), /Sent\. The Foundation team will review/);
   assert.match(JSON.stringify(updated[1].attachments[0].content), /A child spoke up at camp\./);
 });
 

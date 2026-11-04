@@ -13,12 +13,27 @@ export interface FileRef {
   contentType?: string;
 }
 
+/** Most photos and videos one story can carry. */
+export const MAX_FILES = 10;
+
+export type FileKind = 'photo' | 'video' | 'audio' | 'file';
+
+/** What to call an attachment on the card. */
+export function fileKind(f: FileRef): FileKind {
+  const t = (f.contentType ?? '').toLowerCase();
+  const n = f.name.toLowerCase();
+  if (t.startsWith('image/') || /\.(jpe?g|png|gif|heic|heif|webp|bmp)$/.test(n) || /^(jpe?g|png|gif|heic|webp)$/.test(t)) return 'photo';
+  if (t.startsWith('video/') || /\.(mp4|mov|m4v|avi|mkv|webm)$/.test(n) || /^(mp4|mov|m4v|webm)$/.test(t)) return 'video';
+  if (t.startsWith('audio/') || /\.(mp3|m4a|wav|aac|ogg)$/.test(n) || /^(mp3|m4a|wav)$/.test(t)) return 'audio';
+  return 'file';
+}
+
 /** A complete, validated story. This is what gets saved. */
 export interface Draft {
   program: string;
   whatHappened: string;
   whatChanged: string;
-  file?: FileRef;
+  files: FileRef[];
   startedAt: number;
 }
 
@@ -33,7 +48,7 @@ export type Phase = 'idle' | 'form' | 'review' | 'sent';
 export interface Session {
   phase: Phase;
   values: Values;
-  file?: FileRef;
+  files: FileRef[];
   startedAt: number;
   error?: string;
   errorField?: keyof Values;
@@ -45,7 +60,7 @@ export interface Session {
 export interface View {
   kind: 'form' | 'review' | 'sent';
   values: Values;
-  file?: FileRef;
+  files: FileRef[];
   error?: string;
   errorField?: keyof Values;
   greeting: boolean;
@@ -61,7 +76,9 @@ export type Event =
   | { type: 'review'; values: Values }
   | { type: 'edit' }
   | { type: 'send' }
-  | { type: 'file'; file: FileRef }
+  /** One or more attachments. `values` is what is typed on the card right now, when the caller can read it. */
+  | { type: 'file'; files: FileRef[]; values?: Values }
+  | { type: 'removeFile'; index: number; values?: Values }
   | { type: 'text'; text: string };
 
 export interface Out {
@@ -81,7 +98,7 @@ export const GREETING = 'Hi, I am the Bear Friends Desk. Share a story in about 
 const REMINDER = 'Your story card is above. Fill it in there, or say "start over".';
 const ALREADY_SENT = 'That story was already sent. Tap "Share another story" to start a new one.';
 
-export const newSession = (): Session => ({ phase: 'idle', values: {}, startedAt: 0, greeting: false });
+export const newSession = (): Session => ({ phase: 'idle', values: {}, files: [], startedAt: 0, greeting: false });
 
 /**
  * A light first check, not a guarantee. It catches the obvious (email, phone,
@@ -101,7 +118,7 @@ export function viewOf(s: Session, programs: string[]): View {
   return {
     kind: s.phase === 'review' ? 'review' : s.phase === 'sent' ? 'sent' : 'form',
     values: { ...s.values },
-    file: s.file,
+    files: [...s.files],
     error: s.error,
     errorField: s.errorField,
     greeting: s.greeting && s.phase === 'form',
@@ -112,7 +129,7 @@ export function viewOf(s: Session, programs: string[]): View {
 function begin(s: Session, now: number, greeting: boolean) {
   s.phase = 'form';
   s.values = {};
-  s.file = undefined;
+  s.files = [];
   s.error = undefined;
   s.errorField = undefined;
   s.startedAt = now;
@@ -130,6 +147,17 @@ export function parseText(text: string): Event {
   return { type: 'text', text };
 }
 
+/** Keeps what the worker has typed so far, without checking it. */
+function keepTyped(s: Session, v: Values) {
+  s.values = {
+    program: clean(v.program) || undefined,
+    whatHappened: v.whatHappened?.trim() ? v.whatHappened : undefined,
+    whatChanged: v.whatChanged?.trim() ? v.whatChanged : undefined,
+  };
+  s.error = undefined;
+  s.errorField = undefined;
+}
+
 export function step(s: Session, e: Event, programs: string[], now: number = Date.now()): Out {
   const draw = (newMessage = false): Out => ({ view: viewOf(s, programs), newMessage });
 
@@ -138,13 +166,13 @@ export function step(s: Session, e: Event, programs: string[], now: number = Dat
       return {
         say:
           'I help you share a short story about a child or family, in about two minutes. ' +
-          'Nothing is used until Laura has reviewed it. Say "start over" to begin again, or "cancel" to stop.',
+          'Nothing is used until the Foundation team has reviewed it. Say "start over" to begin again, or "cancel" to stop.',
       };
 
     case 'cancel':
       s.phase = 'idle';
       s.values = {};
-      s.file = undefined;
+      s.files = [];
       s.error = undefined;
       return { say: 'No problem. Nothing was saved. Message me whenever you are ready.' };
 
@@ -204,16 +232,33 @@ export function step(s: Session, e: Event, programs: string[], now: number = Dat
       s.errorField = undefined;
       return draw();
 
-    case 'file':
-      if (s.phase === 'review') {
-        s.file = e.file;
-        return draw();
+    case 'file': {
+      if (s.phase !== 'form' && s.phase !== 'review') return { say: 'Open a story card first (say hi), then attach your photos or videos.' };
+      if (e.values && s.phase === 'form') keepTyped(s, e.values);
+      const have = new Set(s.files.map((f) => f.url));
+      let added = 0;
+      let skipped = 0;
+      for (const f of e.files) {
+        if (have.has(f.url)) continue;
+        if (s.files.length >= MAX_FILES) { skipped++; continue; }
+        s.files.push(f);
+        have.add(f.url);
+        added++;
       }
-      if (s.phase === 'form') {
-        s.file = e.file;
-        return { say: 'Got your file. It will show when you review your story.' };
-      }
-      return { say: 'Open a story card first (say hi), then attach your file.' };
+      const note = skipped ? `Only ${MAX_FILES} photos or videos fit on one story, so ${skipped} were left out.` : undefined;
+      // The card can only be redrawn without losing typed text when we know what was typed.
+      if (s.phase === 'review' || e.values) return { ...draw(), say: note };
+      return {
+        say: note ?? `Added ${added || 'your'} file${added === 1 ? '' : 's'}: ${s.files.length} so far. They will show on your card when you tap Review story.`,
+      };
+    }
+
+    case 'removeFile': {
+      if (s.phase !== 'form' && s.phase !== 'review') return {};
+      if (e.values && s.phase === 'form') keepTyped(s, e.values);
+      if (e.index >= 0 && e.index < s.files.length) s.files.splice(e.index, 1);
+      return draw();
+    }
 
     case 'send': {
       if (s.phase === 'sent') return { say: ALREADY_SENT };
@@ -222,7 +267,7 @@ export function step(s: Session, e: Event, programs: string[], now: number = Dat
         program: s.values.program!,
         whatHappened: s.values.whatHappened!,
         whatChanged: s.values.whatChanged!,
-        file: s.file,
+        files: [...s.files],
         startedAt: s.startedAt,
       };
       s.phase = 'sent';

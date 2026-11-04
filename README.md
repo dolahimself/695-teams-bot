@@ -1,6 +1,6 @@
 # Bear Friends Desk bot (Microsoft Teams)
 
-A Teams bot that lets a worker share a short, anonymous story in about two minutes, mostly from a phone. Stories go to a private list for Laura to review before anything is used.
+A Teams bot that lets a worker share a short, anonymous story in about two minutes, mostly from a phone. Stories go to a private list for the Foundation team to review before anything is used.
 
 **Design:** Figma file "Bear Friends Desk: Teams chat design" (https://www.figma.com/design/nzOCTfqBzR0QQeKisbRWad). Six phone screens and two desktop screens in the Teams look.
 
@@ -9,7 +9,7 @@ A Teams bot that lets a worker share a short, anonymous story in about two minut
 1. The first message is the **story card**. The program choice is already on it, so there is no separate step for choosing a program.
 2. The worker picks a program and types what happened and what changed. **Everything stays on the card.** Nothing disappears as they go.
 3. **Review story** turns the same card into a read-only summary. They can attach a photo, audio or video in the chat, and it shows on the card. **Edit** goes back with everything kept.
-4. **Send for review** saves the story. The card stays on screen and says Laura will review it.
+4. **Send for review** saves the story. The card stays on screen and says the Foundation team will review it.
 5. If the privacy check finds a name, phone number, email, link or postal code, the same card shows a message and keeps everything typed. Nothing is saved.
 
 The card is one Adaptive Card that the bot updates in place. Teams uses the full width on phone and desktop.
@@ -53,11 +53,11 @@ In `npm run local`, type: `hi`, then `1` (program), `happened ...`, `changed ...
 
 Create a list called **Unreviewed stories** with these columns. Create each one **without spaces first**, then rename the display name if you like (the internal name stays the same):
 
-`Program` (single line), `WhatHappened` (multiple lines), `WhatChanged` (multiple lines), `Status` (choice: Unreviewed, Approved, Not usable), `FileLink` (single line), `DurationSeconds` (number).
+`Program` (single line), `WhatHappened` (multiple lines), `WhatChanged` (multiple lines), `Status` (choice: Unreviewed, Approved, Not usable), `FileLink` (multiple lines of text, one link per attachment), `DurationSeconds` (number).
 
 `DurationSeconds` is how long the worker took, so you can test the "about two minutes" target.
 
-For photos and audio, add a document library and put its drive id in `SHAREPOINT_DRIVE_ID`. Files over 4 MB are skipped (the story still saves).
+For photos and audio, add a document library and put its drive id in `SHAREPOINT_DRIVE_ID`. Photos and videos up to 150 MB each are uploaded (big videos go up in chunks); anything larger, or any upload that fails, is skipped and the story still saves.
 
 ## 3. Register the bot and connect it to Teams
 
@@ -72,19 +72,19 @@ For photos and audio, add a document library and put its drive id in `SHAREPOINT
 Pick one:
 
 - **`STORE=graph`**: needs an app registration with permission to write to the site (Sites.Selected is best; Sites.ReadWrite.All works but needs an admin to consent). Fill the `GRAPH_*` and `SHAREPOINT_*` values.
-- **`STORE=flow`**: the bot posts JSON to a Power Automate flow, and the flow creates the item and sends Laura her approval. This avoids Graph permissions, but the "When an HTTP request is received" trigger can be a premium connector.
+- **`STORE=flow`**: the bot posts JSON to a Power Automate flow, and the flow creates the item and sends the reviewer an approval request. This avoids Graph permissions, but the "When an HTTP request is received" trigger can be a premium connector.
 - **`STORE=file`**: local only.
 
-## 5. Laura's approval gate
+## 5. The Foundation's approval gate
 
-Build it in Power Automate: when an item is created, start an approval for Laura, then copy approved stories to the Approved library and set `Status`. The Figma file shows the approval card (screen 6).
+Build it in Power Automate: when an item is created, start an approval for whoever reviews stories at the Foundation (a person or a shared group, so it keeps working when staff change), then copy approved stories to the Approved library and set `Status`. The Figma file shows the approval card (screen 6).
 
 ## Known limits (prototype)
 
 - Conversations are held in memory, so a restart loses half-finished stories. Swap in `ConversationState` with Azure storage before real use.
-- The name check is a light first filter, not a guarantee. Laura's review is the real safeguard.
-- Files attached with the paperclip work. Photos pasted inline in Teams may not be downloadable.
+- The name check is a light first filter, not a guarantee. The Foundation's review is the real safeguard.
+- Up to 10 photos or videos per story. The card has an **Add photos or videos** button in its "Photos and videos" box. In Teams it opens a dialog with a real file picker (photo library or camera on a phone); picked files upload, the dialog closes and they appear in the box, each with a Remove button. What you had typed stays. This needs `PUBLIC_BASE_URL` set to your tunnel address in `.env`, and the same address in the app package (`PUBLIC_BASE_URL=https://<tunnel> BOT_ID=<id> npm run package`, which fills `validDomains`). Uploads are kept in `data/uploads` until the story is saved. The preview opens the same dialog as a pop-up.
+- If the dialog does not open on someone's phone, they can still attach with the + button in the chat; the bot adds those files too.
 - Updating a card in place is how Teams behaves in one-to-one chats. If an update ever fails, the bot sends a fresh card instead.
 - The Teams, tunnel and SharePoint steps have not been tested against a real tenant. The flow, the card, the privacy check, the Teams message handling (with a simulated adapter) and the SharePoint request shape are covered by the tests.
 - Program names in `.env` are placeholders. Replace them with CFSGE's real programs.
-# 695-teams-bot

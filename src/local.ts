@@ -4,7 +4,7 @@
  * It plays the same flow the Teams card uses. Stories are written to data/stories.json.
  *
  * Commands:  hi | 1..5 or a program name | happened <text> | changed <text>
- *            review | edit | send | attach <file name> | again | start over | cancel
+ *            review | edit | send | attach <file> [<file> ...] | remove <number> | again | start over | cancel
  */
 import * as readline from 'readline';
 import { PROGRAMS } from './config';
@@ -30,7 +30,7 @@ function render(out: Out) {
   }
   console.log(`| What happened: ${v.values.whatHappened ?? ''}`);
   console.log(`| What changed:  ${v.values.whatChanged ?? ''}`);
-  if (v.kind !== 'form') console.log(`| File: ${v.file ? v.file.name : 'none'}`);
+  console.log(`| Photos and videos: ${v.files.length ? v.files.map((f, i) => `${i + 1}. ${f.name}`).join(', ') : 'none'}`);
   console.log(v.kind === 'form' ? '| [review]' : v.kind === 'review' ? '| [send] [edit]' : '| Sent. [again]');
   console.log('+--------------------------------------------+');
 }
@@ -59,7 +59,8 @@ rl.on('line', async (line) => {
   else if (lower === 'edit') event = { type: 'edit' };
   else if (lower === 'send') event = { type: 'send' };
   else if (lower === 'again') { Object.keys(values).forEach((k) => delete (values as any)[k]); event = { type: 'again' }; }
-  else if (lower === 'attach') event = { type: 'file', file: { name: arg || 'photo.jpg', url: 'file://local' } };
+  else if (lower === 'attach') event = { type: 'file', files: (arg || 'photo.jpg').split(/\s+/).map((name) => ({ name, url: `file://local/${name}` })) };
+  else if (lower === 'remove') event = { type: 'removeFile', index: Number(arg) - 1, values: { ...values } };
   else event = parseText(line);
 
   const out = step(session, event, PROGRAMS);

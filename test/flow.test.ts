@@ -68,19 +68,62 @@ test('edit goes back to the form with values kept; send submits once', () => {
   assert.equal(sent.submit!.program, 'Family support');
   assert.equal(sent.submit!.startedAt, 1000);
   assert.equal(sent.view!.kind, 'sent');
-  assert.match(JSON.stringify(buildCardJson(sent.view!)), /Sent\. Laura will review/);
+  assert.match(JSON.stringify(buildCardJson(sent.view!)), /Sent\. The Foundation team will review/);
   assert.match(JSON.stringify(buildCardJson(sent.view!)), new RegExp(HAPPENED)); // story stays on screen
   assert.equal(go(s, { type: 'send' }).submit, undefined); // double tap does nothing
   assert.equal(go(s, { type: 'again' }).newMessage, true);
 });
 
-test('a file attached during review shows on the card', () => {
+const f = (name: string) => ({ name, url: `https://example.invalid/${name}` });
+
+test('several photos and videos can be attached and show in the collection box', () => {
+  const s = newSession();
+  go(s, { type: 'start' });
+  const typed = { program: 'Camp', whatHappened: 'Half typed', whatChanged: '' };
+  const out = go(s, { type: 'file', files: [f('a.jpg'), f('b.mp4'), f('c.heic')], values: typed });
+  assert.equal(out.view!.kind, 'form');
+  assert.equal(out.view!.files.length, 3);
+  assert.equal(out.view!.values.whatHappened, 'Half typed'); // typed text survives the redraw
+  assert.equal(out.view!.values.program, 'Camp');
+  const json = JSON.stringify(buildCardJson(out.view!));
+  assert.match(json, /PHOTOS AND VIDEOS \(3\)/);
+  assert.match(json, /a\.jpg/);
+  assert.match(json, /Video/);
+  // a second batch adds to the first and ignores repeats
+  const more = go(s, { type: 'file', files: [f('b.mp4'), f('d.png')], values: typed });
+  assert.deepEqual(more.view!.files.map((x) => x.name), ['a.jpg', 'b.mp4', 'c.heic', 'd.png']);
+});
+
+test('attaching in the chat while the form is open does not redraw it (typed text would be lost)', () => {
+  const s = newSession();
+  go(s, { type: 'start' });
+  const out = go(s, { type: 'file', files: [f('a.jpg'), f('b.jpg')] });
+  assert.equal(out.view, undefined);
+  assert.match(out.say!, /2 files: 2 so far/);
+});
+
+test('files can be removed, attached during review, and are saved with the story', () => {
   const s = newSession();
   go(s, { type: 'start' });
   go(s, { type: 'review', values: { program: 'Camp', whatHappened: HAPPENED, whatChanged: CHANGED } });
-  const out = go(s, { type: 'file', file: { name: 'camp-photo.jpg', url: 'https://example.invalid/p' } });
-  assert.equal(out.view!.kind, 'review');
-  assert.match(JSON.stringify(buildCardJson(out.view!)), /camp-photo\.jpg/);
+  const added = go(s, { type: 'file', files: [f('camp-photo.jpg'), f('clip.mov')] });
+  assert.equal(added.view!.kind, 'review');
+  assert.match(JSON.stringify(buildCardJson(added.view!)), /camp-photo\.jpg/);
+  const removed = go(s, { type: 'removeFile', index: 0 });
+  assert.deepEqual(removed.view!.files.map((x) => x.name), ['clip.mov']);
+  const sent = go(s, { type: 'send' });
+  assert.deepEqual(sent.submit!.files.map((x) => x.name), ['clip.mov']);
+  assert.match(JSON.stringify(buildCardJson(sent.view!)), /clip\.mov/);
+  assert.doesNotMatch(JSON.stringify(buildCardJson(sent.view!)), /Remove/); // no removing after sending
+});
+
+test('no more than ten files per story', () => {
+  const s = newSession();
+  go(s, { type: 'start' });
+  const many = Array.from({ length: 12 }, (_, i) => f(`p${i}.jpg`));
+  const out = go(s, { type: 'file', files: many, values: {} });
+  assert.equal(out.view!.files.length, 10);
+  assert.match(out.say!, /2 were left out/);
 });
 
 test('typing while a card is open does not create a second card; start over resets in place', () => {
@@ -114,10 +157,36 @@ test('GraphStore: gets a token, then creates the list item with Unreviewed statu
     return new Response(JSON.stringify({ id: '42' }), { status: 201 });
   }) as unknown as typeof fetch;
   const store = new GraphStore({ tenantId: 'T', clientId: 'C', clientSecret: 'S', siteId: 'SITE', listId: 'LIST' }, fake);
-  const id = await store.save({ program: 'Camp', whatHappened: 'a', whatChanged: 'b', startedAt: 0 }, 60_000);
+  const id = await store.save({ program: 'Camp', whatHappened: 'a', whatChanged: 'b', files: [], startedAt: 0 }, 60_000);
   assert.equal(id, '42');
   const item = calls.find((c) => c.url.includes('/lists/LIST/items'))!;
   const body = JSON.parse(item.init!.body as string);
   assert.equal(body.fields.Status, 'Unreviewed');
   assert.equal(body.fields.DurationSeconds, 60);
+});
+
+test('GraphStore: uploads photos simply and big videos in chunks, one link per file', async () => {
+  const calls: { url: string; method?: string; range?: string; body?: unknown }[] = [];
+  const big = new Uint8Array(7 * 1024 * 1024);
+  const fake = (async (url: string, init?: RequestInit) => {
+    const method = init?.method ?? 'GET';
+    calls.push({ url, method, body: init?.body, range: (init?.headers as Record<string, string> | undefined)?.['Content-Range'] });
+    if (url.includes('oauth2')) return new Response(JSON.stringify({ access_token: 't', expires_in: 3600 }));
+    if (url.startsWith('https://src/photo')) return new Response(new Uint8Array(1000));
+    if (url.startsWith('https://src/video')) return new Response(big);
+    if (url.includes('createUploadSession')) return new Response(JSON.stringify({ uploadUrl: 'https://upload/session' }));
+    if (url === 'https://upload/session') return new Response(JSON.stringify({ webUrl: 'https://sp/video' }));
+    if (url.includes(':/content')) return new Response(JSON.stringify({ webUrl: 'https://sp/photo' }));
+    return new Response(JSON.stringify({ id: '7' }), { status: 201 });
+  }) as unknown as typeof fetch;
+  const store = new GraphStore({ tenantId: 'T', clientId: 'C', clientSecret: 'S', siteId: 'S', listId: 'L', driveId: 'D' }, fake);
+  await store.save(
+    { program: 'Camp', whatHappened: 'a', whatChanged: 'b', startedAt: 0,
+      files: [{ name: 'p.jpg', url: 'https://src/photo' }, { name: 'v.mp4', url: 'https://src/video' }] },
+    1000,
+  );
+  assert.equal(calls.filter((c) => c.url === 'https://upload/session').length, 3); // 7 MB in 3.2 MB chunks
+  const item = calls.find((c) => c.url.includes('/lists/L/items'))!;
+  const links = JSON.parse(item.body as string).fields.FileLink as string;
+  assert.equal(links, 'https://sp/photo\nhttps://sp/video');
 });

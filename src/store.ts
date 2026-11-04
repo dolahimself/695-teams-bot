@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
-import type { Draft } from './flow';
+import type { Draft, FileRef } from './flow';
 
 export interface StoryStore {
   /** Saves one submitted story. Returns an id or link for logs. */
@@ -31,7 +31,7 @@ export class FileStore implements StoryStore {
       program: d.program,
       whatHappened: d.whatHappened,
       whatChanged: d.whatChanged,
-      file: d.file?.name ?? null,
+      files: d.files.map((f) => f.name),
       status: 'Unreviewed',
       durationSeconds: secondsTaken(d, at),
     });
@@ -51,7 +51,9 @@ export interface GraphConfig {
 }
 
 type FetchFn = typeof fetch;
-const MAX_UPLOAD_BYTES = 4 * 1024 * 1024; // simple upload limit in Graph
+const SIMPLE_UPLOAD_BYTES = 4 * 1024 * 1024; // above this, Graph needs an upload session
+const MAX_UPLOAD_BYTES = 150 * 1024 * 1024; // the prototype holds a file in memory while it uploads
+const CHUNK_BYTES = 320 * 1024 * 10; // Graph wants multiples of 320 KiB
 
 /**
  * Writes to the SharePoint list through Microsoft Graph.
@@ -84,28 +86,57 @@ export class GraphStore implements StoryStore {
     return this.token.value;
   }
 
-  private async uploadFile(d: Draft, at: number): Promise<string | undefined> {
-    if (!d.file || !this.cfg.driveId) return undefined;
+  private async uploadOne(file: FileRef, at: number, n: number): Promise<string | undefined> {
+    if (!this.cfg.driveId) return undefined;
     try {
-      const src = await this.fetchFn(d.file.url);
+      const src = await this.fetchFn(file.url);
       if (!src.ok) return undefined;
       const bytes = Buffer.from(await src.arrayBuffer());
       if (bytes.length > MAX_UPLOAD_BYTES) return undefined;
-      const safe = d.file.name.replace(/[^\w.\- ]+/g, '_');
+      const safe = file.name.replace(/[^\w.\- ]+/g, '_');
       const token = await this.getToken();
-      const put = await this.fetchFn(
-        `https://graph.microsoft.com/v1.0/drives/${this.cfg.driveId}/root:/Story files/${at}-${safe}:/content`,
-        { method: 'PUT', headers: { Authorization: `Bearer ${token}` }, body: bytes },
-      );
-      if (!put.ok) return undefined;
-      return ((await put.json()) as { webUrl?: string }).webUrl;
+      const target = `https://graph.microsoft.com/v1.0/drives/${this.cfg.driveId}/root:/Story files/${at}-${n}-${safe}`;
+      if (bytes.length <= SIMPLE_UPLOAD_BYTES) {
+        const put = await this.fetchFn(`${target}:/content`, { method: 'PUT', headers: { Authorization: `Bearer ${token}` }, body: bytes });
+        if (!put.ok) return undefined;
+        return ((await put.json()) as { webUrl?: string }).webUrl;
+      }
+      // Videos are usually bigger than 4 MB: upload in chunks through an upload session.
+      const session = await this.fetchFn(`${target}:/createUploadSession`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item: { '@microsoft.graph.conflictBehavior': 'rename' } }),
+      });
+      if (!session.ok) return undefined;
+      const { uploadUrl } = (await session.json()) as { uploadUrl: string };
+      let last: Response | undefined;
+      for (let start = 0; start < bytes.length; start += CHUNK_BYTES) {
+        const end = Math.min(start + CHUNK_BYTES, bytes.length);
+        last = await this.fetchFn(uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Length': String(end - start), 'Content-Range': `bytes ${start}-${end - 1}/${bytes.length}` },
+          body: bytes.subarray(start, end),
+        });
+        if (!last.ok) return undefined;
+      }
+      return ((await last!.json()) as { webUrl?: string }).webUrl;
     } catch {
       return undefined; // the story is still saved without the file
     }
   }
 
+  /** Uploads every attachment it can. A file that fails is skipped; the story still saves. */
+  private async uploadFiles(d: Draft, at: number): Promise<string> {
+    const links: string[] = [];
+    for (let i = 0; i < d.files.length; i++) {
+      const link = await this.uploadOne(d.files[i], at, i + 1);
+      if (link) links.push(link);
+    }
+    return links.join('\n');
+  }
+
   async save(d: Draft, at: number): Promise<string> {
-    const fileLink = await this.uploadFile(d, at);
+    const fileLink = await this.uploadFiles(d, at);
     const token = await this.getToken();
     const res = await this.fetchFn(
       `https://graph.microsoft.com/v1.0/sites/${this.cfg.siteId}/lists/${this.cfg.listId}/items`,
@@ -119,7 +150,7 @@ export class GraphStore implements StoryStore {
             WhatHappened: d.whatHappened,
             WhatChanged: d.whatChanged,
             Status: 'Unreviewed',
-            FileLink: fileLink ?? '',
+            FileLink: fileLink,
             DurationSeconds: secondsTaken(d, at),
           },
         }),
@@ -143,8 +174,9 @@ export class FlowStore implements StoryStore {
         program: d.program,
         whatHappened: d.whatHappened,
         whatChanged: d.whatChanged,
-        fileName: d.file?.name ?? '',
-        fileUrl: d.file?.url ?? '',
+        fileName: d.files[0]?.name ?? '',
+        fileUrl: d.files[0]?.url ?? '',
+        files: d.files.map((f) => ({ name: f.name, url: f.url })),
         durationSeconds: secondsTaken(d, at),
       }),
     });
