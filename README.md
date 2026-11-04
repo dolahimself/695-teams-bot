@@ -2,7 +2,7 @@
 
 A Teams bot that lets a worker share a short, anonymous story in about two minutes, mostly from a phone. Stories go to a private list for the Foundation team to review before anything is used.
 
-**Design:** Figma file "Bear Friends Desk: Teams chat design" (https://www.figma.com/design/nzOCTfqBzR0QQeKisbRWad). Six phone screens and two desktop screens in the Teams look.
+**Design:** Figma file "Bear Friends Desk: Teams chat design" (https://www.figma.com/design/Fea8JyDrKHCHEyuivm50aA). Six phone screens and two desktop screens in the Teams look.
 
 ## How it works for the worker
 
