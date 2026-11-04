@@ -88,3 +88,11 @@ Build it in Power Automate: when an item is created, start an approval for whoev
 - Updating a card in place is how Teams behaves in one-to-one chats. If an update ever fails, the bot sends a fresh card instead.
 - The Teams, tunnel and SharePoint steps have not been tested against a real tenant. The flow, the card, the privacy check, the Teams message handling (with a simulated adapter) and the SharePoint request shape are covered by the tests.
 - Program names in `.env` are placeholders. Replace them with CFSGE's real programs.
+
+## Deploy the preview to Vercel
+
+1. Push the repo to GitHub, then in Vercel choose **Add New → Project** and import it.
+2. Set **Application Preset** to **Other** (not Express: the Express preset looks for `src/index.ts`, which is the Teams bot, not the preview).
+3. Leave build settings as they are and click **Deploy**.
+
+`api/index.ts` and `vercel.json` do the rest. On Vercel, chat state lives in memory and uploads go to `/tmp`, so state can reset between clicks and uploads are capped near 4.5 MB. For a full demo with media use Render, Railway or Fly.

@@ -10,11 +10,12 @@ import { Event, GREETING, Session, newSession, step } from './flow';
  * It does not need Teams, Azure or SharePoint, and it saves nothing.
  */
 export function createPreviewApp() {
-  const root = path.join(__dirname, '..', '..');
+  const onVercel = !!process.env.VERCEL;
+  const root = onVercel ? process.cwd() : path.join(__dirname, '..', '..');
   const app = express();
   const sessions = new Map<string, Session>();
   const port = Number(process.env.PREVIEW_PORT ?? 3979);
-  const attach = createAttach(app, { baseUrl: `http://localhost:${port}`, dir: path.join(root, 'data', 'preview-uploads') });
+  const attach = createAttach(app, { baseUrl: `http://localhost:${port}`, dir: onVercel ? '/tmp/preview-uploads' : path.join(root, 'data', 'preview-uploads') });
   app.get('/attach-url', (_req, res) => res.json({ url: attach.attachUrl('preview').replace(/^https?:\/\/[^/]+/, '') }));
 
   app.use(express.json());
