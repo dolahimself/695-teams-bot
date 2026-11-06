@@ -222,3 +222,10 @@ test('review card says Submit, and submitting still saves "Other" as the program
   const done = go(s, { type: 'send' });
   assert.equal(done.submit!.program, 'Other');
 });
+
+test('default program list includes "My own story as a Social Worker" just before Other', () => {
+  process.env.PROGRAMS = '';
+  delete process.env.PROGRAMS;
+  const { PROGRAMS: defaults } = require('../src/config');
+  assert.deepEqual(defaults.slice(-2), ['My own story as a Social Worker', 'Other']);
+});
