@@ -81,7 +81,7 @@ export class BearFriendsBot extends TeamsActivityHandler {
               : undefined,
           };
         } else if (act === 'addMedia') {
-          await context.sendActivity('Use the + button next to the message box to attach photos or videos in this chat. They will show on your card.');
+          await context.sendActivity('Use the + button next to the message box to attach photos in this chat. They will show on your card.');
           return next();
         } else if (act === 'edit' || act === 'send' || act === 'again') {
           event = { type: act };
@@ -100,7 +100,7 @@ export class BearFriendsBot extends TeamsActivityHandler {
     });
   }
 
-  /** The worker tapped "Add photos or videos": open the upload dialog. */
+  /** The worker tapped "Add Photos": open the upload dialog. */
   protected async handleTeamsTaskModuleFetch(context: TurnContext, req: TaskModuleRequest): Promise<TaskModuleResponse> {
     const slot = this.slot(context);
     const d = (req.data ?? {}) as Record<string, unknown>;
@@ -108,10 +108,10 @@ export class BearFriendsBot extends TeamsActivityHandler {
       ? { program: String(d.program ?? ''), whatHappened: String(d.whatHappened ?? ''), whatChanged: String(d.whatChanged ?? '') }
       : undefined;
     if (!this.attachUrl) {
-      return { task: { type: 'message', value: 'Attach photos or videos in the chat with the + button instead.' } };
+      return { task: { type: 'message', value: 'Attach photos in the chat with the + button instead.' } };
     }
     const url = this.attachUrl();
-    return { task: { type: 'continue', value: { title: 'Add photos or videos', url, fallbackUrl: url, width: 'medium', height: 'large' } } };
+    return { task: { type: 'continue', value: { title: 'Add Photos', url, fallbackUrl: url, width: 'medium', height: 'large' } } };
   }
 
   /** The dialog closed with the uploaded files: put them in the card's collection box. */

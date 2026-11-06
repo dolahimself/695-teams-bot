@@ -19,7 +19,7 @@ function render(out: Out) {
   if (out.say) console.log(`\nBear: ${out.say}`);
   const v = out.view;
   if (!v) return;
-  if (v.greeting) console.log('\nBear: Hi, I am the Bear Friends Desk. Share a story in about two minutes. Please leave out names and identifying details.');
+  if (v.greeting) console.log('\nBear: Hi, I am Bear Friends Stories. Share a story in about two minutes. Please leave out names and identifying details.');
   console.log('\n+--------------------------------------------+');
   console.log(v.kind === 'form' ? '| Share a story' : v.kind === 'review' ? '| Check your story' : '| Your story');
   if (v.error) console.log(`| !! ${v.error}`);
@@ -30,12 +30,12 @@ function render(out: Out) {
   }
   console.log(`| What happened: ${v.values.whatHappened ?? ''}`);
   console.log(`| What changed:  ${v.values.whatChanged ?? ''}`);
-  console.log(`| Photos and videos: ${v.files.length ? v.files.map((f, i) => `${i + 1}. ${f.name}`).join(', ') : 'none'}`);
+  console.log(`| Photos: ${v.files.length ? v.files.map((f, i) => `${i + 1}. ${f.name}`).join(', ') : 'none'}`);
   console.log(v.kind === 'form' ? '| [review]' : v.kind === 'review' ? '| [send] [edit]' : '| Sent. [again]');
   console.log('+--------------------------------------------+');
 }
 
-console.log('Bear Friends Desk (local). Say hi to begin. Ctrl+C to quit.');
+console.log('Bear Friends Stories (local). Say hi to begin. Ctrl+C to quit.');
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 rl.on('line', async (line) => {
   const [cmd, ...rest] = line.trim().split(/\s+/);

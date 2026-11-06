@@ -1,7 +1,7 @@
 {
-  "name": "bear-friends-desk-bot",
+  "name": "bear-friends-stories-bot",
   "version": "0.1.0",
-  "description": "Bear Friends Desk: a Microsoft Teams bot that lets workers share a short, anonymous story in about two minutes. Stories land in a private SharePoint list for review.",
+  "description": "Bear Friends Stories: a Microsoft Teams bot that lets workers share a short, anonymous story in about two minutes. Stories land in a private SharePoint list for review.",
   "private": true,
   "main": "dist/src/index.js",
   "engines": {

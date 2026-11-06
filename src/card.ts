@@ -1,5 +1,5 @@
 import { CardFactory, MessageFactory } from 'botbuilder';
-import { FileKind, GREETING, MAX_FILES, PRIVACY_NOTE, View, fileKind } from './flow';
+import { FileKind, GREETING, MAX_FILES, OTHER_LABEL, PRIVACY_NOTE, View, fileKind } from './flow';
 
 /**
  * Builds the Adaptive Card for each state. One card does the whole job, so
@@ -26,11 +26,11 @@ function banner(message: string, style: 'attention' | 'good' | 'accent') {
 
 const KIND_LABEL: Record<FileKind, string> = { photo: 'Photo', video: 'Video', audio: 'Audio', file: 'File' };
 
-/** The collection box: every photo or video attached to this story, with a way to take one off. */
+/** The collection box: every photo attached to this story, with a way to take one off. */
 function attachments(view: View, editable: boolean) {
   const n = view.files.length;
   const items: unknown[] = [
-    text(n ? `PHOTOS AND VIDEOS (${n})` : 'PHOTOS AND VIDEOS', { size: 'Small', weight: 'Bolder', isSubtle: true }),
+    text(n ? `Photos (Reading notes, drawings - anonymized) (${n})` : 'Photos (Reading notes, drawings - anonymized)', { size: 'Small', weight: 'Bolder', isSubtle: true }),
   ];
   view.files.forEach((f, i) => {
     items.push({
@@ -57,7 +57,7 @@ function attachments(view: View, editable: boolean) {
       actions: [
         {
           type: 'Action.Submit',
-          title: n ? 'Add more photos or videos' : 'Add photos or videos',
+          title: n ? 'Add more photos' : 'Add Photos',
           // Teams opens a dialog with a real file picker (see attach.ts).
           data: { action: 'addMedia', msteams: { type: 'task/fetch' } },
         },
@@ -83,13 +83,13 @@ export function buildCardJson(view: View): Record<string, unknown> {
       label: 'Which program is this story from?',
       style: 'expanded',
       value: v.program ?? '',
-      choices: view.programs.map((p) => ({ title: p, value: p })),
+      choices: view.programs.map((p) => ({ title: p === 'Other' ? OTHER_LABEL : p, value: p })),
     });
     body.push({
       type: 'Input.Text',
       id: 'whatHappened',
       label: 'What happened?',
-      placeholder: 'A few sentences is plenty',
+      placeholder: 'Tell us about the impact moment',
       isMultiline: true,
       maxLength: 1500,
       value: v.whatHappened ?? '',
@@ -98,7 +98,7 @@ export function buildCardJson(view: View): Record<string, unknown> {
       type: 'Input.Text',
       id: 'whatChanged',
       label: 'What changed for the child or family?',
-      placeholder: 'One or two sentences',
+      placeholder: 'Tell us a story (4-5 sentences work great).',
       isMultiline: true,
       maxLength: 1000,
       value: v.whatChanged ?? '',
@@ -110,14 +110,14 @@ export function buildCardJson(view: View): Record<string, unknown> {
     body.push(
       view.kind === 'sent'
         ? banner('Sent. The Foundation team will review it before anything is used.', 'good')
-        : banner('Nothing is sent until you tap Send for review.', 'accent'),
+        : banner('Nothing is sent until you tap Submit.', 'accent'),
     );
     body.push(fact('Program', v.program ?? ''));
     body.push(fact('What happened', v.whatHappened ?? ''));
     body.push(fact('What changed', v.whatChanged ?? ''));
     body.push(attachments(view, view.kind === 'review'));
     if (view.kind === 'review') {
-      actions.push({ type: 'Action.Submit', title: 'Send for review', style: 'positive', data: { action: 'send' } });
+      actions.push({ type: 'Action.Submit', title: 'Submit', style: 'positive', data: { action: 'send' } });
       actions.push({ type: 'Action.Submit', title: 'Edit', data: { action: 'edit' } });
     } else {
       actions.push({ type: 'Action.Submit', title: 'Share another story', data: { action: 'again' } });

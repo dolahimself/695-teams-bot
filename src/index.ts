@@ -33,5 +33,5 @@ app.post('/api/messages', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Bear Friends Desk listening on :${PORT}  (store: ${process.env.STORE ?? 'file'})`);
+  console.log(`Bear Friends Stories listening on :${PORT}  (store: ${process.env.STORE ?? 'file'})`);
 });

@@ -25,7 +25,7 @@ test('Teams: hello opens ONE message with the greeting and the card; card button
   await adapter.send('hi').startTest();
   const first = sent.find((a) => a.attachments?.length);
   assert.ok(first, 'a card message is sent');
-  assert.match(first.text, /Bear Friends Desk/);
+  assert.match(first.text, /Bear Friends Stories/);
   assert.equal(first.attachments[0].contentType, 'application/vnd.microsoft.card.adaptive');
 
   const id = 'card-1';

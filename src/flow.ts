@@ -13,10 +13,16 @@ export interface FileRef {
   contentType?: string;
 }
 
-/** Most photos and videos one story can carry. */
+/** Most photos one story can carry. */
 export const MAX_FILES = 10;
 
 export type FileKind = 'photo' | 'video' | 'audio' | 'file';
+
+/** Shown for the "Other" program. The stored value stays "Other". */
+export const OTHER_LABEL = 'Other (specify what program and what happened)';
+
+/** Only photos can be attached. */
+export const isPhoto = (f: FileRef) => fileKind(f) === 'photo';
 
 /** What to call an attachment on the card. */
 export function fileKind(f: FileRef): FileKind {
@@ -93,7 +99,7 @@ export interface Out {
 }
 
 export const PRIVACY_NOTE = 'Please leave out names and identifying details.';
-export const GREETING = 'Hi, I am the Bear Friends Desk. Share a story in about two minutes. ' + PRIVACY_NOTE;
+export const GREETING = 'Hi, I am Bear Friends Stories. Share a story in about two minutes. ' + PRIVACY_NOTE;
 
 const REMINDER = 'Your story card is above. Fill it in there, or say "start over".';
 const ALREADY_SENT = 'That story was already sent. Tap "Share another story" to start a new one.';
@@ -233,23 +239,28 @@ export function step(s: Session, e: Event, programs: string[], now: number = Dat
       return draw();
 
     case 'file': {
-      if (s.phase !== 'form' && s.phase !== 'review') return { say: 'Open a story card first (say hi), then attach your photos or videos.' };
+      if (s.phase !== 'form' && s.phase !== 'review') return { say: 'Open a story card first (say hi), then attach your photos.' };
       if (e.values && s.phase === 'form') keepTyped(s, e.values);
       const have = new Set(s.files.map((f) => f.url));
       let added = 0;
       let skipped = 0;
+      let notPhotos = 0;
       for (const f of e.files) {
+        if (!isPhoto(f)) { notPhotos++; continue; }
         if (have.has(f.url)) continue;
         if (s.files.length >= MAX_FILES) { skipped++; continue; }
         s.files.push(f);
         have.add(f.url);
         added++;
       }
-      const note = skipped ? `Only ${MAX_FILES} photos or videos fit on one story, so ${skipped} were left out.` : undefined;
+      const notes: string[] = [];
+      if (skipped) notes.push(`Only ${MAX_FILES} photos fit on one story, so ${skipped} were left out.`);
+      if (notPhotos) notes.push('Only photos can be added, so ' + (notPhotos === 1 ? 'one file was' : `${notPhotos} files were`) + ' left out.');
+      const note = notes.length ? notes.join(' ') : undefined;
       // The card can only be redrawn without losing typed text when we know what was typed.
       if (s.phase === 'review' || e.values) return { ...draw(), say: note };
       return {
-        say: note ?? `Added ${added || 'your'} file${added === 1 ? '' : 's'}: ${s.files.length} so far. They will show on your card when you tap Review story.`,
+        say: note ?? `Added ${added || 'your'} photo${added === 1 ? '' : 's'}: ${s.files.length} so far. They will show on your card when you tap Review story.`,
       };
     }
 

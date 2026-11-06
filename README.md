@@ -1,4 +1,4 @@
-# Bear Friends Desk bot (Microsoft Teams)
+# Bear Friends Stories bot (Microsoft Teams)
 
 A Teams bot that lets a worker share a short, anonymous story in about two minutes, mostly from a phone. Stories go to a private list for the Foundation team to review before anything is used.
 
@@ -8,8 +8,8 @@ A Teams bot that lets a worker share a short, anonymous story in about two minut
 
 1. The first message is the **story card**. The program choice is already on it, so there is no separate step for choosing a program.
 2. The worker picks a program and types what happened and what changed. **Everything stays on the card.** Nothing disappears as they go.
-3. **Review story** turns the same card into a read-only summary. They can attach a photo, audio or video in the chat, and it shows on the card. **Edit** goes back with everything kept.
-4. **Send for review** saves the story. The card stays on screen and says the Foundation team will review it.
+3. **Review story** turns the same card into a read-only summary. They can attach photos in the chat, and it shows on the card. **Edit** goes back with everything kept.
+4. **Submit** saves the story. The card stays on screen and says the Foundation team will review it.
 5. If the privacy check finds a name, phone number, email, link or postal code, the same card shows a message and keeps everything typed. Nothing is saved.
 
 The card is one Adaptive Card that the bot updates in place. Teams uses the full width on phone and desktop.
@@ -57,7 +57,7 @@ Create a list called **Unreviewed stories** with these columns. Create each one 
 
 `DurationSeconds` is how long the worker took, so you can test the "about two minutes" target.
 
-For photos and audio, add a document library and put its drive id in `SHAREPOINT_DRIVE_ID`. Photos and videos up to 150 MB each are uploaded (big videos go up in chunks); anything larger, or any upload that fails, is skipped and the story still saves.
+For photos, add a document library and put its drive id in `SHAREPOINT_DRIVE_ID`. Photos up to 150 MB each are uploaded; anything larger, or any upload that fails, is skipped and the story still saves.
 
 ## 3. Register the bot and connect it to Teams
 
@@ -83,7 +83,7 @@ Build it in Power Automate: when an item is created, start an approval for whoev
 
 - Conversations are held in memory, so a restart loses half-finished stories. Swap in `ConversationState` with Azure storage before real use.
 - The name check is a light first filter, not a guarantee. The Foundation's review is the real safeguard.
-- Up to 10 photos or videos per story. The card has an **Add photos or videos** button in its "Photos and videos" box. In Teams it opens a dialog with a real file picker (photo library or camera on a phone); picked files upload, the dialog closes and they appear in the box, each with a Remove button. What you had typed stays. This needs `PUBLIC_BASE_URL` set to your tunnel address in `.env`, and the same address in the app package (`PUBLIC_BASE_URL=https://<tunnel> BOT_ID=<id> npm run package`, which fills `validDomains`). Uploads are kept in `data/uploads` until the story is saved. The preview opens the same dialog as a pop-up.
+- Up to 10 photos per story (videos and audio are not accepted). The card has an **Add Photos** button in its "Photos (Reading notes, drawings - anonymized)" box. In Teams it opens a dialog with a real file picker (photo library or camera on a phone); picked files upload, the dialog closes and they appear in the box, each with a Remove button. What you had typed stays. This needs `PUBLIC_BASE_URL` set to your tunnel address in `.env`, and the same address in the app package (`PUBLIC_BASE_URL=https://<tunnel> BOT_ID=<id> npm run package`, which fills `validDomains`). Uploads are kept in `data/uploads` until the story is saved. The preview opens the same dialog as a pop-up.
 - If the dialog does not open on someone's phone, they can still attach with the + button in the chat; the bot adds those files too.
 - Updating a card in place is how Teams behaves in one-to-one chats. If an update ever fails, the bot sends a fresh card instead.
 - The Teams, tunnel and SharePoint steps have not been tested against a real tenant. The flow, the card, the privacy check, the Teams message handling (with a simulated adapter) and the SharePoint request shape are covered by the tests.

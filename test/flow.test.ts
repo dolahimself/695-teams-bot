@@ -76,22 +76,24 @@ test('edit goes back to the form with values kept; send submits once', () => {
 
 const f = (name: string) => ({ name, url: `https://example.invalid/${name}` });
 
-test('several photos and videos can be attached and show in the collection box', () => {
+test('several photos can be attached and show in the collection box', () => {
   const s = newSession();
   go(s, { type: 'start' });
   const typed = { program: 'Camp', whatHappened: 'Half typed', whatChanged: '' };
   const out = go(s, { type: 'file', files: [f('a.jpg'), f('b.mp4'), f('c.heic')], values: typed });
   assert.equal(out.view!.kind, 'form');
-  assert.equal(out.view!.files.length, 3);
+  assert.equal(out.view!.files.length, 2); // the video is left out
+  assert.match(out.say!, /Only photos can be added/);
   assert.equal(out.view!.values.whatHappened, 'Half typed'); // typed text survives the redraw
   assert.equal(out.view!.values.program, 'Camp');
   const json = JSON.stringify(buildCardJson(out.view!));
-  assert.match(json, /PHOTOS AND VIDEOS \(3\)/);
+  assert.match(json, /Photos \(Reading notes, drawings - anonymized\) \(2\)/);
   assert.match(json, /a\.jpg/);
-  assert.match(json, /Video/);
+  assert.doesNotMatch(json, /Video|VIDEOS/);
+  assert.match(json, /Add more photos/);
   // a second batch adds to the first and ignores repeats
-  const more = go(s, { type: 'file', files: [f('b.mp4'), f('d.png')], values: typed });
-  assert.deepEqual(more.view!.files.map((x) => x.name), ['a.jpg', 'b.mp4', 'c.heic', 'd.png']);
+  const more = go(s, { type: 'file', files: [f('a.jpg'), f('d.png')], values: typed });
+  assert.deepEqual(more.view!.files.map((x) => x.name), ['a.jpg', 'c.heic', 'd.png']);
 });
 
 test('attaching in the chat while the form is open does not redraw it (typed text would be lost)', () => {
@@ -99,21 +101,21 @@ test('attaching in the chat while the form is open does not redraw it (typed tex
   go(s, { type: 'start' });
   const out = go(s, { type: 'file', files: [f('a.jpg'), f('b.jpg')] });
   assert.equal(out.view, undefined);
-  assert.match(out.say!, /2 files: 2 so far/);
+  assert.match(out.say!, /2 photos: 2 so far/);
 });
 
 test('files can be removed, attached during review, and are saved with the story', () => {
   const s = newSession();
   go(s, { type: 'start' });
   go(s, { type: 'review', values: { program: 'Camp', whatHappened: HAPPENED, whatChanged: CHANGED } });
-  const added = go(s, { type: 'file', files: [f('camp-photo.jpg'), f('clip.mov')] });
+  const added = go(s, { type: 'file', files: [f('camp-photo.jpg'), f('drawing.png')] });
   assert.equal(added.view!.kind, 'review');
   assert.match(JSON.stringify(buildCardJson(added.view!)), /camp-photo\.jpg/);
   const removed = go(s, { type: 'removeFile', index: 0 });
-  assert.deepEqual(removed.view!.files.map((x) => x.name), ['clip.mov']);
+  assert.deepEqual(removed.view!.files.map((x) => x.name), ['drawing.png']);
   const sent = go(s, { type: 'send' });
-  assert.deepEqual(sent.submit!.files.map((x) => x.name), ['clip.mov']);
-  assert.match(JSON.stringify(buildCardJson(sent.view!)), /clip\.mov/);
+  assert.deepEqual(sent.submit!.files.map((x) => x.name), ['drawing.png']);
+  assert.match(JSON.stringify(buildCardJson(sent.view!)), /drawing\.png/);
   assert.doesNotMatch(JSON.stringify(buildCardJson(sent.view!)), /Remove/); // no removing after sending
 });
 
@@ -189,4 +191,34 @@ test('GraphStore: uploads photos simply and big videos in chunks, one link per f
   const item = calls.find((c) => c.url.includes('/lists/L/items'))!;
   const links = JSON.parse(item.body as string).fields.FileLink as string;
   assert.equal(links, 'https://sp/photo\nhttps://sp/video');
+});
+
+test('card wording: placeholders, Submit button, Other label, no videos', () => {
+  const s = newSession();
+  const form = go(s, { type: 'start' });
+  const j: any = buildCardJson(form.view!);
+  const inputs = j.body.filter((b: any) => b.type === 'Input.Text');
+  assert.equal(inputs[0].placeholder, 'Tell us about the impact moment');
+  assert.equal(inputs[1].placeholder, 'Tell us a story (4-5 sentences work great).');
+  const choice = j.body.find((b: any) => b.type === 'Input.ChoiceSet');
+  const other = choice.choices.find((c: any) => c.value === 'Other');
+  assert.equal(other.title, 'Other (specify what program and what happened)');
+  const text = JSON.stringify(j);
+  assert.match(text, /Add Photos/);
+  assert.doesNotMatch(text, /video/i);
+  go(s, { type: 'review', values: { program: 'Other', whatHappened: 'Something happened here today', whatChanged: 'Things are better now for them' } } as any);
+  const rev = go(s, { type: 'edit' });
+  assert.ok(rev.view);
+});
+
+test('review card says Submit, and submitting still saves "Other" as the program', () => {
+  const s = newSession();
+  go(s, { type: 'start' });
+  const r = go(s, { type: 'review', values: { program: 'Other', whatHappened: 'Something happened here today', whatChanged: 'Things are better now for them' } } as any);
+  const j = JSON.stringify(buildCardJson(r.view!));
+  assert.match(j, /"title":"Submit"/);
+  assert.match(j, /tap Submit\./);
+  assert.doesNotMatch(j, /Send for review/);
+  const done = go(s, { type: 'send' });
+  assert.equal(done.submit!.program, 'Other');
 });

@@ -4,9 +4,9 @@ import type { Express, Request } from 'express';
 import * as path from 'path';
 
 /**
- * Photo and video upload for the story card.
+ * Photo upload for the story card.
  *
- * An Adaptive Card cannot hold a file picker, so the card has an "Add photos or videos"
+ * An Adaptive Card cannot hold a file picker, so the card has an "Add Photos"
  * button. In Teams the button opens a dialog that shows /attach (a small web page with a
  * real file picker). The page uploads each file here, then hands the list back to the bot,
  * which redraws the card with the files in its collection box.
@@ -49,7 +49,7 @@ export function createAttach(app: Express, opts: AttachOptions) {
     `${opts.baseUrl.replace(/\/$/, '')}/attach?t=${encodeURIComponent(token())}${mode === 'preview' ? '&mode=preview' : ''}`;
 
   app.get('/attach', (req, res) => {
-    if (!valid(req.query.t)) return res.status(403).send('This link has expired. Close this window and tap Add photos or videos again.');
+    if (!valid(req.query.t)) return res.status(403).send('This link has expired. Close this window and tap Add Photos again.');
     res.type('html').send(ATTACH_PAGE);
   });
 
@@ -57,7 +57,7 @@ export function createAttach(app: Express, opts: AttachOptions) {
     if (!valid(req.query.t)) return res.status(403).json({ error: 'expired' });
     const name = clean(String(req.query.name ?? 'file'));
     const type = String(req.query.type ?? '').slice(0, 100) || 'application/octet-stream';
-    if (!/^(image|video|audio)\//.test(type)) return res.status(415).json({ error: 'Only photos, videos and audio can be added.' });
+    if (!/^image\//.test(type)) return res.status(415).json({ error: 'Only photos can be added.' });
     const id = randomUUID();
     await fs.mkdir(opts.dir, { recursive: true });
     const file = path.join(opts.dir, id);
@@ -99,7 +99,7 @@ export function createAttach(app: Express, opts: AttachOptions) {
 
 const ATTACH_PAGE = `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Add photos or videos</title>
+<title>Add Photos</title>
 <script src="https://res.cdn.office.net/teams-js/2.31.0/js/MicrosoftTeams.min.js"></script>
 <style>
   :root { --brand:#5B5FC7; --ink:#242424; --mute:#616161; --font:-apple-system,"SF Pro Text","Segoe UI",system-ui,sans-serif; }
@@ -118,9 +118,9 @@ const ATTACH_PAGE = `<!doctype html>
   .row { display:flex; gap:8px; } .row button { flex:1; min-height:46px; border-radius:8px; font:600 16px var(--font); cursor:pointer; border:1.5px solid var(--brand); background:#fff; color:var(--brand); }
   .row button.go { background:var(--brand); color:#fff; } .row button:disabled { opacity:.45; cursor:default; }
 </style></head><body>
-<h1>Add photos or videos</h1>
+<h1>Add Photos</h1>
 <p>Up to 10 per story. Please avoid faces or names where you can.</p>
-<label class="pick" id="drop">Choose photos or videos<input id="f" type="file" accept="image/*,video/*,audio/*" multiple hidden></label>
+<label class="pick" id="drop">Choose photos<input id="f" type="file" accept="image/*" multiple hidden></label>
 <ul id="list"></ul>
 <div class="row"><button type="button" id="cancel">Cancel</button><button type="button" class="go" id="done" disabled>Add to story</button></div>
 <script>
@@ -155,10 +155,10 @@ function addFile(file) {
   xhr.send(file);
 }
 const input = document.getElementById('f');
-input.onchange = () => { for (const f of input.files) addFile(f); input.value = ''; };
+input.onchange = () => { for (const f of input.files) if (f.type.startsWith('image/')) addFile(f); input.value = ''; };
 const drop = document.getElementById('drop');
 drop.ondragover = (e) => { e.preventDefault(); drop.classList.add('over'); }; drop.ondragleave = () => drop.classList.remove('over');
-drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); for (const f of e.dataTransfer.files) addFile(f); };
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); for (const f of e.dataTransfer.files) if (f.type.startsWith('image/')) addFile(f); };
 
 let teams = false;
 if (!preview && window.microsoftTeams) { microsoftTeams.app.initialize().then(() => { teams = true; }).catch(() => {}); }

@@ -9,7 +9,7 @@
     "privacyUrl": "https://example.com/privacy",
     "termsOfUseUrl": "https://example.com/terms"
   },
-  "name": { "short": "Bear Friends Desk", "full": "Bear Friends Desk: share a story" },
+  "name": { "short": "Bear Friends Stories", "full": "Bear Friends Stories: share a story" },
   "description": {
     "short": "Share a short, anonymous story in about two minutes.",
     "full": "Workers share a short story about a child or family through a quick chat. Stories go to a private list and are reviewed before anything is used. Prototype for the CFSGE Foundation."

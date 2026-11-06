@@ -21,7 +21,7 @@ async function serve() {
   return { base, attach, server, dir };
 }
 
-test('upload page: needs a valid link, accepts photos and videos, serves them back', async () => {
+test('upload page: needs a valid link, accepts photos only, serves them back', async () => {
   const { base, attach, server } = await serve();
   try {
     const t = attach.token();
@@ -43,6 +43,8 @@ test('upload page: needs a valid link, accepts photos and videos, serves them ba
 
     assert.equal((await fetch(`${base}/api/upload?t=nope&name=a.jpg&type=image/jpeg`, { method: 'PUT', body: bytes })).status, 403);
     assert.equal((await fetch(`${base}/api/upload?t=${encodeURIComponent(t)}&name=a.exe&type=application/x-msdownload`, { method: 'PUT', body: bytes })).status, 415);
+    assert.equal((await fetch(`${base}/api/upload?t=${encodeURIComponent(t)}&name=clip.mp4&type=video/mp4`, { method: 'PUT', body: bytes })).status, 415); // no videos
+    assert.equal((await fetch(`${base}/api/upload?t=${encodeURIComponent(t)}&name=a.m4a&type=audio/mp4`, { method: 'PUT', body: bytes })).status, 415);
   } finally {
     server.close();
   }
@@ -54,7 +56,7 @@ test('Teams: the button opens the upload dialog; files from the dialog land in t
   const sent: any[] = [];
   const updated: any[] = [];
   const typed = { action: 'addMedia', program: 'Camp', whatHappened: 'Half typed', whatChanged: '' };
-  const files = [{ name: 'a.jpg', url: 'https://x/a', contentType: 'image/jpeg' }, { name: 'b.mp4', url: 'https://x/b', contentType: 'video/mp4' }];
+  const files = [{ name: 'a.jpg', url: 'https://x/a', contentType: 'image/jpeg' }, { name: 'b.jpg', url: 'https://x/b', contentType: 'image/jpeg' }];
   let fetchRes: any;
   const adapter = new TestAdapter(async (ctx: TurnContext) => {
     if (ctx.activity.name === 'task/fetch') fetchRes = await (bot as any).handleTeamsTaskModuleFetch(ctx, { data: typed });
@@ -72,10 +74,10 @@ test('Teams: the button opens the upload dialog; files from the dialog land in t
 
   await adapter.send({ type: ActivityTypes.Invoke, name: 'task/submit', value: {} } as any).startTest();
   const cards = [...sent, ...updated].filter((a) => a.attachments?.length).map((a) => JSON.stringify(a.attachments[0].content));
-  const card = cards.find((c) => c.includes('PHOTOS AND VIDEOS (2)')) ?? cards[cards.length - 1];
-  assert.match(card, /PHOTOS AND VIDEOS \(2\)/);
+  const card = cards.find((c) => c.includes('Photos (Reading notes, drawings - anonymized) (2)')) ?? cards[cards.length - 1];
+  assert.match(card, /Photos \(Reading notes, drawings - anonymized\) \(2\)/);
   assert.match(card, /a\.jpg/);
   assert.match(card, /Half typed/);
-  assert.match(card, /Add more photos or videos/);
+  assert.match(card, /Add more photos/);
   assert.equal(saved.length, 0);
 });

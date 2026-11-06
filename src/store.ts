@@ -46,7 +46,7 @@ export interface GraphConfig {
   clientSecret: string;
   siteId: string;
   listId: string;
-  /** Optional drive (document library) for photos, audio and video. */
+  /** Optional drive (document library) for photos. */
   driveId?: string;
 }
 
