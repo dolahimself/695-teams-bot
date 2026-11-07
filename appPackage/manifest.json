@@ -6,13 +6,13 @@
   "developer": {
     "name": "Team Fusion55 (UX695)",
     "websiteUrl": "https://example.com",
-    "privacyUrl": "https://example.com/privacy",
+    "privacyUrl": "https://cfsge.ca/privacy-statement/",
     "termsOfUseUrl": "https://example.com/terms"
   },
   "name": { "short": "Bear Friends Stories", "full": "Bear Friends Stories: share a story" },
   "description": {
     "short": "Share a short, anonymous story in about two minutes.",
-    "full": "Workers share a short story about a child or family through a quick chat. Stories go to a private list and are reviewed before anything is used. Prototype for the CFSGE Foundation."
+    "full": "Workers share a short story about a child or family through a quick chat. Stories go to a private list and are reviewed before anything is used. Please leave out names and identifying details, and read the agency's privacy statement before you share. Prototype for the CFSGE Foundation."
   },
   "icons": { "color": "color.png", "outline": "outline.png" },
   "accentColor": "#E8923A",

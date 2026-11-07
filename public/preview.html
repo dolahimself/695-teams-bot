@@ -36,7 +36,7 @@
   .about { flex:1; overflow-y:auto; padding:24px 20px; max-width:640px; width:100%; margin:0 auto; } .about[hidden] { display:none; }
   .about img { width:72px; height:72px; border-radius:50%; } .about h1 { font-size:22px; margin:10px 0 6px; font-weight:600; }
   .about h3 { font-size:15px; margin:20px 0 6px; font-weight:600; } .about p,.about li { font-size:15px; line-height:1.45; color:#424242; margin:0 0 6px; } .about ol { padding-left:20px; margin:0; }
-  .about .lead { font-size:16px; } .about .go { margin-top:20px; background:var(--brand); color:#fff; border:0; border-radius:8px; min-height:44px; padding:0 20px; font:600 16px var(--font); cursor:pointer; }
+  .about ul { padding-left:20px; margin:0 0 6px; } .about ul.check { list-style:none; padding-left:0; } .about ul.check li { position:relative; padding-left:26px; margin-bottom:8px; } .about ul.check li::before { content:''; position:absolute; left:2px; top:3px; width:14px; height:14px; border:1.5px solid #8a8a8a; border-radius:3px; } .about a { color:var(--brand); } .about small { color:#616161; font-size:12.5px; } .about .lead { font-size:16px; } .about .go { margin-top:20px; background:var(--brand); color:#fff; border:0; border-radius:8px; min-height:44px; padding:0 20px; font:600 16px var(--font); cursor:pointer; }
   .bubble.media { display:flex; flex-wrap:wrap; gap:6px; padding:6px; background:var(--brand); max-width:78%; }
   .bubble.media img,.bubble.media video { width:96px; height:96px; object-fit:cover; border-radius:10px; background:#000; }
   .th-file { min-width:96px; height:96px; border-radius:10px; background:#fff; color:var(--brand); display:flex; align-items:center; justify-content:center; padding:6px; font-size:12px; word-break:break-all; text-align:center; }
@@ -93,10 +93,26 @@
         <p class="lead">A quick way to share a story from camp, family support, youth programs or community events with the CFSGE Foundation team.</p>
         <h3>How it works</h3>
         <ol><li>Pick the program and answer two short questions.</li><li>Check your story on the review card.</li><li>Tap Submit. Nothing is sent until you do.</li></ol>
+        <h3>Before you submit, check</h3>
+        <p>Ontario law protects personal information about the services children and families receive, and the agency must keep it safe and secure. Read down this list once before you tap Submit.</p>
+        <ul class="check">
+          <li>No names, phone numbers, emails, addresses, links, or school or place names.</li>
+          <li>No health, disability, financial, court or police details about the child or family.</li>
+          <li>The person the story is about, or the person who can decide for them, has agreed to share it. For a child, a parent or guardian may need to agree.</li>
+          <li>They know they can say no, and can change their mind later.</li>
+          <li>Any photo shows no faces, names or school names.</li>
+          <li>The story uses respectful, dignity-centred language.</li>
+          <li>You are sharing it in this chat, not by text, email or voicemail. The agency's safeguards cover those too.</li>
+        </ul>
         <h3>Photos</h3>
-        <p>Attach a file in the chat before you tap Submit and it goes with your story.</p>
-        <h3>Privacy</h3>
-        <p>Please leave out names, phone numbers, emails, addresses and links. The bot checks for these and asks you to remove them.</p>
+        <p>Photos only, such as reading notes or drawings. Make them anonymous first: no faces, names or school names. Attach them in the chat before you tap Submit and they go with your story.</p>
+        <h3>What the bot checks</h3>
+        <p>The bot looks for the obvious, like emails, phone numbers, links and postal codes, and asks you to remove them. It is a light check and does not catch everything, so please read your story once before you submit.</p>
+        <h3>What happens next</h3>
+        <p>Stories go to a private list. The Foundation team reviews each one, and nothing is used until it is approved.</p>
+        <h3>If something went wrong</h3>
+        <p>If you shared something you should not have, or a story should not be used, contact the agency's Privacy Lead on 1-888-753-8681.</p>
+        <p><a href="https://cfsge.ca/privacy-statement/" target="_blank" rel="noopener">Read the agency's privacy statement</a><br><small>Summarised from the statement page, last modified 29 June 2026.</small></p>
         <h3>Need help?</h3>
         <p>Type <b>help</b> in the chat, or <b>start over</b> to begin again.</p>
         <button type="button" class="go" id="goChat">Share a story</button>
