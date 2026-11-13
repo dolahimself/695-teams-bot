@@ -46,8 +46,22 @@
   .dlgbox iframe { width:100%; height:100%; border:0; }
   @media (max-width:760px) { .dlgbox { width:100%; height:100%; border-radius:0; } }
   .thumbs { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
-  .thumbs img,.thumbs video { width:64px; height:64px; object-fit:cover; border-radius:8px; background:#000; }
-  .thumbs .th-file { min-width:64px; height:64px; text-transform:uppercase; font-weight:600; }
+  .thumbs .th { width:64px; height:64px; padding:0; border:1px solid var(--line); border-radius:8px; overflow:hidden; background:#EEE; cursor:zoom-in; }
+  .thumbs .th:hover { border-color:var(--brand); } .thumbs .th:focus-visible { outline:2px solid var(--brand); outline-offset:2px; }
+  .thumbs .th img { display:block; width:100%; height:100%; object-fit:cover; }
+  /* Full-size photo viewer, like the one Teams opens when you click an image */
+  .viewer { position:fixed; inset:0; z-index:60; display:flex; flex-direction:column; background:rgba(20,20,20,.95); color:#fff; }
+  .viewer [hidden] { display:none !important; }
+  .vbar { display:flex; align-items:center; gap:8px; padding:8px 8px 8px 16px; }
+  .vname { flex:1; min-width:0; font:600 15px var(--font); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .vcount { font-size:13px; color:#C8C8C8; margin-right:4px; white-space:nowrap; }
+  .vbtn { width:44px; height:44px; border:0; border-radius:8px; background:none; color:#fff; display:flex; align-items:center; justify-content:center; cursor:pointer; flex:none; }
+  .vbtn:hover { background:rgba(255,255,255,.14); } .vbtn:focus-visible { outline:2px solid #fff; outline-offset:-2px; }
+  .vstage { flex:1; min-height:0; position:relative; display:flex; align-items:center; justify-content:center; padding:8px 64px 24px; }
+  .vstage img { max-width:100%; max-height:100%; object-fit:contain; border-radius:4px; user-select:none; }
+  .vstage .vbtn { position:absolute; top:50%; transform:translateY(-50%); border-radius:50%; background:rgba(255,255,255,.14); }
+  .vstage .vbtn:hover { background:rgba(255,255,255,.26); } .vprev { left:10px; } .vnext { right:10px; }
+  @media (max-width:760px) { .vstage { padding:8px 8px 16px; } .vstage .vbtn { background:rgba(0,0,0,.45); } }
   body.on-about .msgs, body.on-about .composer { display:none; }
   .ac-pushButton { cursor:pointer; min-height:44px; border-radius:8px !important; border:1.5px solid var(--brand) !important; background:#fff !important; color:var(--brand) !important; font:600 16px var(--font) !important; }
   .ac-pushButton.style-positive { background:var(--brand) !important; color:#fff !important; }
@@ -198,21 +212,77 @@ function drawCard(json, inPlace) {
 const kinds = new Map(); // url -> content type, remembered from the dialog
 const mimeOf = (u) => kinds.get(u) || '';
 // Thumbnails of what is attached, shown inside the card's collection box.
+// The picture comes from the browser's own copy of the file when it has one, so it shows even when the
+// server cannot hand the upload back (on Vercel each click can land on a different instance).
 function addThumbs(inner, urls) {
   if (!urls || !urls.length) return;
-  const strip = document.createElement('div'); strip.className = 'thumbs';
+  const photos = [];
   for (const u of urls) {
-    const b = blobs.get(u) || (u.startsWith('http') ? { url: u, type: mimeOf(u), name: decodeURIComponent(u.split('/').pop()) } : null); if (!b) continue;
-    const t = document.createElement(b.type.startsWith('video/') ? 'video' : b.type.startsWith('image/') ? 'img' : 'div');
-    if (t.tagName === 'DIV') { t.className = 'th-file'; t.textContent = b.name.split('.').pop(); } else { t.src = b.url; if (t.tagName === 'VIDEO') { t.muted = true; t.preload = 'metadata'; } }
-    strip.appendChild(t);
+    const b = blobs.get(u) || (/^(https?:|\/)/.test(u) ? { url: u, type: mimeOf(u), name: decodeURIComponent(u.split('/').pop()) } : null);
+    if (b) photos.push(b);
   }
-  if (!strip.children.length) return;
+  if (!photos.length) return;
+  const strip = document.createElement('div'); strip.className = 'thumbs';
+  photos.forEach((p, i) => {
+    const t = document.createElement('button'); t.type = 'button'; t.className = 'th'; t.title = 'View ' + p.name; t.setAttribute('aria-label', 'View ' + p.name);
+    const im = document.createElement('img'); im.src = p.url; im.alt = ''; t.appendChild(im);
+    t.onclick = () => openViewer(photos, i, t);
+    strip.appendChild(t);
+  });
   const root = inner.firstElementChild; // rendered card
   const sets = [...root.querySelectorAll(':scope > .ac-container > .ac-actionSet, :scope > .ac-actionSet')];
   const hosts = [...root.querySelectorAll('.ac-container')].filter((c) => /Photos \(Reading notes/.test(c.textContent) && c.querySelector('.ac-columnSet, .ac-textBlock'));
   const box = hosts.length ? hosts[hosts.length - 1] : null;
   if (box) box.appendChild(strip); else inner.appendChild(strip);
+}
+
+const ICON = (d) => '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + d + '"/></svg>';
+// Full-size view of a photo: arrows, swipe or the arrow keys move between photos; Esc, X or a click outside closes it.
+function openViewer(photos, start, opener) {
+  let i = start;
+  const v = document.createElement('div'); v.className = 'viewer';
+  v.setAttribute('role', 'dialog'); v.setAttribute('aria-modal', 'true'); v.setAttribute('aria-label', 'Photo viewer');
+  v.innerHTML = '<div class="vbar"><span class="vname"></span><span class="vcount"></span>'
+    + '<a class="vbtn vdl" title="Download" aria-label="Download">' + ICON('M12 4v11M7 10l5 5 5-5M5 20h14') + '</a>'
+    + '<button type="button" class="vbtn vclose" title="Close" aria-label="Close">' + ICON('M6 6l12 12M18 6L6 18') + '</button></div>'
+    + '<div class="vstage"><img alt="">'
+    + '<button type="button" class="vbtn vprev" aria-label="Previous photo">' + ICON('M15 5l-7 7 7 7') + '</button>'
+    + '<button type="button" class="vbtn vnext" aria-label="Next photo">' + ICON('M9 5l7 7-7 7') + '</button></div>';
+  const $ = (s) => v.querySelector(s);
+  const show = () => {
+    const p = photos[i];
+    $('img').src = p.url; $('img').alt = p.name;
+    $('.vname').textContent = p.name;
+    $('.vcount').textContent = photos.length > 1 ? (i + 1) + ' of ' + photos.length : '';
+    $('.vdl').href = p.url; $('.vdl').download = p.name;
+    $('.vprev').hidden = $('.vnext').hidden = photos.length < 2;
+  };
+  const go = (d) => { i = (i + d + photos.length) % photos.length; show(); };
+  const close = () => { document.removeEventListener('keydown', onKey); v.remove(); if (opener) opener.focus(); };
+  const onKey = (e) => {
+    if (e.key === 'Escape') close();
+    else if (e.key === 'ArrowLeft' && photos.length > 1) go(-1);
+    else if (e.key === 'ArrowRight' && photos.length > 1) go(1);
+    else if (e.key === 'Tab') { // keep focus inside the viewer
+      const f = [...v.querySelectorAll('a,button')].filter((x) => !x.hidden);
+      const at = f.indexOf(document.activeElement);
+      if (e.shiftKey && at <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+      else if (!e.shiftKey && at === f.length - 1) { e.preventDefault(); f[0].focus(); }
+    }
+  };
+  $('.vclose').onclick = close;
+  $('.vprev').onclick = () => go(-1);
+  $('.vnext').onclick = () => go(1);
+  v.addEventListener('click', (e) => { if (e.target === v || e.target.classList.contains('vstage')) close(); });
+  let x0 = null;
+  $('.vstage').addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
+  $('.vstage').addEventListener('touchend', (e) => {
+    if (x0 === null || photos.length < 2) return;
+    const dx = e.changedTouches[0].clientX - x0; x0 = null;
+    if (Math.abs(dx) > 40) go(dx < 0 ? 1 : -1);
+  });
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(v); show(); $('.vclose').focus();
 }
 
 // Same as Teams: the button opens a dialog that holds a real file picker.
@@ -224,11 +294,15 @@ async function openDialog() {
   const typedNow = typed();
   const close = () => { window.removeEventListener('message', onMsg); wrap.remove(); };
   const onMsg = (e) => {
-    if (!e.data || !e.data.bearAttach) return;
-    const files = e.data.bearAttach.files || []; close();
+    if (e.origin !== location.origin || !e.data || !e.data.bearAttach) return;
+    const files = e.data.bearAttach.files || []; const picked = e.data.picked || []; close();
     if (!files.length) return;
+    files.forEach((f, i) => {
+      kinds.set(f.url, f.contentType || '');
+      // Keep the browser's own copy of each photo for the thumbnail and the full-size view.
+      if (picked[i] instanceof Blob) blobs.set(f.url, { url: URL.createObjectURL(picked[i]), type: f.contentType || picked[i].type, name: f.name });
+    });
     send({ type: 'file', files, values: typedNow });
-    files.forEach((f) => kinds.set(f.url, f.contentType || ''));
   };
   window.addEventListener('message', onMsg);
   wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
@@ -238,6 +312,7 @@ async function openDialog() {
 function fromCard(d) {
   if (d.action === 'review') return { type: 'review', values: { program: d.program || '', whatHappened: d.whatHappened || '', whatChanged: d.whatChanged || '' } };
   if (d.action === 'removeFile') return { type: 'removeFile', index: d.index, values: { program: d.program || '', whatHappened: d.whatHappened || '', whatChanged: d.whatChanged || '' } };
+  if (d.action === 'edit' || d.action === 'send') return { type: d.action, story: d.story };
   return { type: d.action };
 }
 

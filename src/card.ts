@@ -1,5 +1,5 @@
 import { CardFactory, MessageFactory } from 'botbuilder';
-import { FileKind, GREETING, MAX_FILES, OTHER_LABEL, PRIVACY_NOTE, View, fileKind } from './flow';
+import { CarriedStory, FileKind, GREETING, MAX_FILES, OTHER_LABEL, PRIVACY_NOTE, View, fileKind } from './flow';
 
 /**
  * Builds the Adaptive Card for each state. One card does the whole job, so
@@ -117,8 +117,10 @@ export function buildCardJson(view: View): Record<string, unknown> {
     body.push(fact('What changed', v.whatChanged ?? ''));
     body.push(attachments(view, view.kind === 'review'));
     if (view.kind === 'review') {
-      actions.push({ type: 'Action.Submit', title: 'Submit', style: 'positive', data: { action: 'send' } });
-      actions.push({ type: 'Action.Submit', title: 'Edit', data: { action: 'edit' } });
+      // The buttons carry the story, so they still work if the server forgot the session (see CarriedStory).
+      const story: CarriedStory = { values: v, files: view.files, startedAt: view.startedAt };
+      actions.push({ type: 'Action.Submit', title: 'Submit', style: 'positive', data: { action: 'send', story } });
+      actions.push({ type: 'Action.Submit', title: 'Edit', data: { action: 'edit', story } });
     } else {
       actions.push({ type: 'Action.Submit', title: 'Share another story', data: { action: 'again' } });
     }

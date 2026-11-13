@@ -14,9 +14,9 @@ export function createPreviewApp() {
   const root = onVercel ? process.cwd() : path.join(__dirname, '..', '..');
   const app = express();
   const sessions = new Map<string, Session>();
-  const port = Number(process.env.PREVIEW_PORT ?? 3979);
-  const attach = createAttach(app, { baseUrl: `http://localhost:${port}`, dir: onVercel ? '/tmp/preview-uploads' : path.join(root, 'data', 'preview-uploads') });
-  app.get('/attach-url', (_req, res) => res.json({ url: attach.attachUrl('preview').replace(/^https?:\/\/[^/]+/, '') }));
+  // Relative links, so they point at whichever address the preview is served from (localhost or Vercel).
+  const attach = createAttach(app, { baseUrl: '', dir: onVercel ? '/tmp/preview-uploads' : path.join(root, 'data', 'preview-uploads') });
+  app.get('/attach-url', (_req, res) => res.json({ url: attach.attachUrl('preview') }));
 
   app.use(express.json());
   app.use('/assets', express.static(path.join(root, 'assets')));

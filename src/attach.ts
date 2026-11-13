@@ -17,7 +17,7 @@ export const MAX_UPLOAD_BYTES = 150 * 1024 * 1024;
 const TOKEN_LIFETIME_MS = 2 * 60 * 60 * 1000;
 
 export interface AttachOptions {
-  /** Public https address of this server (the same tunnel Teams uses). */
+  /** Public https address of this server (the same tunnel Teams uses). Empty gives links relative to this server (the preview). */
   baseUrl: string;
   /** Folder where uploads are kept until the story is saved. */
   dir: string;
@@ -127,6 +127,7 @@ const ATTACH_PAGE = `<!doctype html>
 const q = new URLSearchParams(location.search), tok = q.get('t'), preview = q.get('mode') === 'preview';
 const MAX = 10, list = document.getElementById('list'), done = document.getElementById('done');
 const items = []; // {name,url,contentType} once uploaded
+const picked = new Map(); // uploaded item -> the File picked for it, so the preview can show it without fetching it back
 let busy = 0;
 const size = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB';
 function refresh() { done.disabled = busy > 0 || items.length === 0; done.textContent = items.length ? 'Add ' + items.length + ' to story' : 'Add to story'; }
@@ -147,7 +148,7 @@ function addFile(file) {
   xhr.upload.onprogress = (e) => { if (e.lengthComputable) m.querySelector('i').style.width = (100 * e.loaded / e.total) + '%'; };
   xhr.onload = () => {
     busy--;
-    if (xhr.status === 200) { rec = JSON.parse(xhr.responseText); items.push(rec); m.querySelector('.s').textContent = size(file.size); m.querySelector('.bar').remove(); }
+    if (xhr.status === 200) { rec = JSON.parse(xhr.responseText); items.push(rec); picked.set(rec, file); m.querySelector('.s').textContent = size(file.size); m.querySelector('.bar').remove(); }
     else { li.classList.add('err'); let msg = 'Could not upload'; try { msg = JSON.parse(xhr.responseText).error || msg; } catch (_) {} m.querySelector('.s').textContent = msg; m.querySelector('.bar').remove(); }
     refresh();
   };
@@ -163,7 +164,8 @@ drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove('over'); for (c
 let teams = false;
 if (!preview && window.microsoftTeams) { microsoftTeams.app.initialize().then(() => { teams = true; }).catch(() => {}); }
 function finish(result) {
-  if (preview) parent.postMessage({ bearAttach: result }, '*');
+  // The preview page is on this same server; the files never go anywhere else.
+  if (preview) parent.postMessage({ bearAttach: result, picked: result.files.map((r) => picked.get(r)) }, location.origin);
   else if (teams) microsoftTeams.dialog.url.submit(result);
 }
 done.onclick = () => finish({ files: items });

@@ -229,3 +229,39 @@ test('default program list includes "My own story as a Social Worker" just befor
   const { PROGRAMS: defaults } = require('../src/config');
   assert.deepEqual(defaults.slice(-2), ['My own story as a Social Worker', 'Other']);
 });
+
+test('Edit and Submit still work when the server forgot the session: the review card carries the story', () => {
+  const s = newSession();
+  go(s, { type: 'start' }, 1000);
+  go(s, { type: 'file', files: [f('drawing.png')] });
+  const review = go(s, { type: 'review', values: { program: 'Camp', whatHappened: HAPPENED, whatChanged: CHANGED } });
+  const card = buildCardJson(review.view!) as any;
+  const tap = (title: string) => card.actions.find((a: any) => a.title === title).data;
+
+  // A fresh session stands in for a restart or a new serverless instance.
+  const edit = tap('Edit');
+  const back = go(newSession(), { type: edit.action, story: edit.story }, 5000);
+  assert.equal(back.view!.kind, 'form');
+  assert.deepEqual(back.view!.values, { program: 'Camp', whatHappened: HAPPENED, whatChanged: CHANGED });
+  assert.deepEqual(back.view!.files.map((x) => x.name), ['drawing.png']);
+  assert.match(JSON.stringify(buildCardJson(back.view!)), new RegExp(HAPPENED));
+
+  const send = tap('Submit');
+  const sent = go(newSession(), { type: send.action, story: send.story }, 9000);
+  assert.equal(sent.view!.kind, 'sent');
+  assert.equal(sent.submit!.whatChanged, CHANGED);
+  assert.equal(sent.submit!.startedAt, 1000);
+  assert.deepEqual(sent.submit!.files.map((x) => x.name), ['drawing.png']);
+});
+
+test('a carried story is checked again before it is saved, and junk is ignored', () => {
+  const story = { values: { program: 'Camp', whatHappened: 'Call me at 780-555-1234 any time', whatChanged: CHANGED }, files: [], startedAt: 0 };
+  const out = go(newSession(), { type: 'send', story });
+  assert.equal(out.submit, undefined);
+  assert.equal(out.view!.kind, 'form');
+  assert.match(out.view!.error!, /phone number/);
+
+  const junk = go(newSession(), { type: 'edit', story: { values: null, files: 'nope', startedAt: 'x' } } as any);
+  assert.equal(junk.view!.kind, 'form');
+  assert.deepEqual(junk.view!.files, []);
+});

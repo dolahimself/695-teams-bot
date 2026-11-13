@@ -81,3 +81,21 @@ test('Teams: the button opens the upload dialog; files from the dialog land in t
   assert.match(card, /Add more photos/);
   assert.equal(saved.length, 0);
 });
+
+test('preview: an empty base address gives links relative to the server, so they work on any host (localhost or Vercel)', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'bfd-'));
+  const app = express();
+  const attach = createAttach(app, { baseUrl: '', dir, secret: 'test-secret' });
+  const server = app.listen(0);
+  const base = `http://localhost:${(server.address() as AddressInfo).port}`;
+  try {
+    assert.match(attach.attachUrl('preview'), /^\/attach\?t=.+&mode=preview$/);
+    const t = attach.token();
+    const up = await fetch(`${base}/api/upload?t=${encodeURIComponent(t)}&name=drawing.png&type=image/png`, { method: 'PUT', body: new Uint8Array(10).fill(1) });
+    const rec = (await up.json()) as { url: string };
+    assert.match(rec.url, /^\/files\/[0-9a-f-]{36}\/drawing\.png$/);
+    assert.equal((await fetch(base + rec.url)).status, 200);
+  } finally {
+    server.close();
+  }
+});

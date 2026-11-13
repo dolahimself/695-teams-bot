@@ -67,10 +67,22 @@ export interface View {
   kind: 'form' | 'review' | 'sent';
   values: Values;
   files: FileRef[];
+  startedAt: number;
   error?: string;
   errorField?: keyof Values;
   greeting: boolean;
   programs: string[];
+}
+
+/**
+ * The story the review card's Edit and Submit buttons carry. The server can forget a session
+ * between two taps (a restart, or a fresh serverless instance on Vercel) while the card is still
+ * on screen, so the buttons bring the story back with them.
+ */
+export interface CarriedStory {
+  values: Values;
+  files: FileRef[];
+  startedAt: number;
 }
 
 export type Event =
@@ -80,8 +92,8 @@ export type Event =
   | { type: 'cancel' }
   | { type: 'help' }
   | { type: 'review'; values: Values }
-  | { type: 'edit' }
-  | { type: 'send' }
+  | { type: 'edit'; story?: CarriedStory }
+  | { type: 'send'; story?: CarriedStory }
   /** One or more attachments. `values` is what is typed on the card right now, when the caller can read it. */
   | { type: 'file'; files: FileRef[]; values?: Values }
   | { type: 'removeFile'; index: number; values?: Values }
@@ -125,6 +137,7 @@ export function viewOf(s: Session, programs: string[]): View {
     kind: s.phase === 'review' ? 'review' : s.phase === 'sent' ? 'sent' : 'form',
     values: { ...s.values },
     files: [...s.files],
+    startedAt: s.startedAt,
     error: s.error,
     errorField: s.errorField,
     greeting: s.greeting && s.phase === 'form',
@@ -163,6 +176,24 @@ function keepTyped(s: Session, v: Values) {
   s.error = undefined;
   s.errorField = undefined;
 }
+
+/**
+ * Puts a forgotten session back from the story a review card carried, ready for review.
+ * The data comes back from the client, so only well-formed parts are kept.
+ */
+function restore(s: Session, story: CarriedStory, now: number) {
+  const str = (x: unknown) => (typeof x === 'string' ? x : undefined);
+  const v = (story.values ?? {}) as Record<string, unknown>;
+  begin(s, Number.isFinite(story.startedAt) ? story.startedAt : now, false);
+  keepTyped(s, { program: str(v.program), whatHappened: str(v.whatHappened), whatChanged: str(v.whatChanged) });
+  s.files = (Array.isArray(story.files) ? story.files : [])
+    .filter((f) => f && typeof f.url === 'string' && typeof f.name === 'string' && isPhoto(f))
+    .slice(0, MAX_FILES)
+    .map((f) => ({ name: f.name, url: f.url, contentType: str(f.contentType) }));
+  s.phase = 'review';
+}
+
+const carried = (story: unknown): story is CarriedStory => !!story && typeof story === 'object';
 
 export function step(s: Session, e: Event, programs: string[], now: number = Date.now()): Out {
   const draw = (newMessage = false): Out => ({ view: viewOf(s, programs), newMessage });
@@ -232,7 +263,10 @@ export function step(s: Session, e: Event, programs: string[], now: number = Dat
 
     case 'edit':
       if (s.phase === 'sent') return { say: ALREADY_SENT };
-      if (s.phase === 'idle') return { say: 'Say hi and I will open a story card for you.' };
+      if (s.phase === 'idle') {
+        if (!carried(e.story)) return { say: 'Say hi and I will open a story card for you.' };
+        restore(s, e.story, now);
+      }
       s.phase = 'form';
       s.error = undefined;
       s.errorField = undefined;
@@ -273,6 +307,12 @@ export function step(s: Session, e: Event, programs: string[], now: number = Dat
 
     case 'send': {
       if (s.phase === 'sent') return { say: ALREADY_SENT };
+      if (s.phase === 'idle' && carried(e.story)) {
+        restore(s, e.story, now);
+        // Check it again exactly as Review does: a story is never saved unchecked.
+        const checked = step(s, { type: 'review', values: s.values }, programs, now);
+        if (checked.view?.kind !== 'review') return checked;
+      }
       if (s.phase !== 'review') return { say: 'Please review your story first.' };
       const draft: Draft = {
         program: s.values.program!,

@@ -6,7 +6,7 @@ import {
   TurnContext,
 } from 'botbuilder';
 import { buildCardActivity } from './card';
-import { Event, FileRef, Out, Session, Values, newSession, parseText, step, viewOf } from './flow';
+import { CarriedStory, Event, FileRef, Out, Session, Values, newSession, parseText, step, viewOf } from './flow';
 import type { StoryStore } from './store';
 
 const TEAMS_FILE = 'application/vnd.microsoft.teams.file.download.info';
@@ -83,7 +83,9 @@ export class BearFriendsBot extends TeamsActivityHandler {
         } else if (act === 'addMedia') {
           await context.sendActivity('Use the + button next to the message box to attach photos in this chat. They will show on your card.');
           return next();
-        } else if (act === 'edit' || act === 'send' || act === 'again') {
+        } else if (act === 'edit' || act === 'send') {
+          event = { type: act, story: value!.story as CarriedStory | undefined }; // checked in flow.ts
+        } else if (act === 'again') {
           event = { type: act };
         } else {
           event = { type: 'text', text: '' };

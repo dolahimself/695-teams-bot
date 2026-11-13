@@ -52,3 +52,17 @@ test('Teams: a privacy problem updates the same card and keeps what was typed', 
   assert.match(body, /Her name is Amara/);
   assert.equal(saved.length, 0);
 });
+
+test('Teams: Edit on a review card still opens the filled-in form after the bot restarted', async () => {
+  const first = setup();
+  await first.adapter.send('hi').startTest();
+  await first.adapter.send({ type: ActivityTypes.Message, text: '', replyToId: 'c', value: { action: 'review', program: 'Camp', whatHappened: 'A child spoke up at camp.', whatChanged: 'More confident.' } } as any).startTest();
+  const edit = first.updated[0].attachments[0].content.actions.find((a: any) => a.title === 'Edit').data;
+
+  const after = setup(); // a new bot: nothing in memory
+  await after.adapter.send({ type: ActivityTypes.Message, text: '', replyToId: 'c', value: edit } as any).startTest();
+  assert.equal(after.updated.length, 1);
+  const body = JSON.stringify(after.updated[0].attachments[0].content);
+  assert.match(body, /Share a story/);
+  assert.match(body, /A child spoke up at camp\./);
+});
