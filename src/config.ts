@@ -1,7 +1,9 @@
 import 'dotenv/config';
 
 export const PROGRAMS: string[] = (
-  process.env.PROGRAMS ?? 'Camp,Family support,Youth programs,Community events,My own story as a Social Worker,Other'
+  process.env.PROGRAMS ??
+    'Camp,Family support,Youth programs,Community events,Season of Sharing,Grocery vouchers,' +
+      'My own story as a Social Worker,My own story working with the agency,Other'
 )
   .split(',')
   .map((s) => s.trim())

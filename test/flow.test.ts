@@ -18,7 +18,7 @@ test('first message is the card, with the program choice already on it', () => {
   const card = buildCardJson(out.view!) as any;
   const choice = card.body.find((b: any) => b.type === 'Input.ChoiceSet');
   assert.deepEqual(choice.choices.map((c: any) => c.value), PROGRAMS);
-  assert.equal(choice.style, 'expanded');
+  assert.equal(choice.style, 'compact'); // a dropdown
   assert.equal(card.msteams.width, 'Full');
 });
 
@@ -63,14 +63,14 @@ test('edit goes back to the form with values kept; send submits once', () => {
   assert.equal(back.view!.kind, 'form');
   assert.equal(back.view!.values.program, 'Family support');
   go(s, { type: 'review', values: back.view!.values });
-  const sent = go(s, { type: 'send' }, 91_000);
+  const sent = go(s, { type: 'send', consent: true }, 91_000);
   assert.ok(sent.submit);
   assert.equal(sent.submit!.program, 'Family support');
   assert.equal(sent.submit!.startedAt, 1000);
   assert.equal(sent.view!.kind, 'sent');
   assert.match(JSON.stringify(buildCardJson(sent.view!)), /Sent\. The Foundation team will review/);
   assert.match(JSON.stringify(buildCardJson(sent.view!)), new RegExp(HAPPENED)); // story stays on screen
-  assert.equal(go(s, { type: 'send' }).submit, undefined); // double tap does nothing
+  assert.equal(go(s, { type: 'send', consent: true }).submit, undefined); // double tap does nothing
   assert.equal(go(s, { type: 'again' }).newMessage, true);
 });
 
@@ -113,7 +113,7 @@ test('files can be removed, attached during review, and are saved with the story
   assert.match(JSON.stringify(buildCardJson(added.view!)), /camp-photo\.jpg/);
   const removed = go(s, { type: 'removeFile', index: 0 });
   assert.deepEqual(removed.view!.files.map((x) => x.name), ['drawing.png']);
-  const sent = go(s, { type: 'send' });
+  const sent = go(s, { type: 'send', consent: true });
   assert.deepEqual(sent.submit!.files.map((x) => x.name), ['drawing.png']);
   assert.match(JSON.stringify(buildCardJson(sent.view!)), /drawing\.png/);
   assert.doesNotMatch(JSON.stringify(buildCardJson(sent.view!)), /Remove/); // no removing after sending
@@ -219,15 +219,16 @@ test('review card says Submit, and submitting still saves "Other" as the program
   assert.match(j, /"title":"Submit"/);
   assert.match(j, /tap Submit\./);
   assert.doesNotMatch(j, /Send for review/);
-  const done = go(s, { type: 'send' });
+  const done = go(s, { type: 'send', consent: true });
   assert.equal(done.submit!.program, 'Other');
 });
 
-test('default program list includes "My own story as a Social Worker" just before Other', () => {
+test('default program list has the programs from research, both "own story" choices, and Other last', () => {
   process.env.PROGRAMS = '';
   delete process.env.PROGRAMS;
   const { PROGRAMS: defaults } = require('../src/config');
-  assert.deepEqual(defaults.slice(-2), ['My own story as a Social Worker', 'Other']);
+  for (const p of ['Season of Sharing', 'Grocery vouchers']) assert.ok(defaults.includes(p), p);
+  assert.deepEqual(defaults.slice(-3), ['My own story as a Social Worker', 'My own story working with the agency', 'Other']);
 });
 
 test('Edit and Submit still work when the server forgot the session: the review card carries the story', () => {
@@ -247,7 +248,7 @@ test('Edit and Submit still work when the server forgot the session: the review 
   assert.match(JSON.stringify(buildCardJson(back.view!)), new RegExp(HAPPENED));
 
   const send = tap('Submit');
-  const sent = go(newSession(), { type: send.action, story: send.story }, 9000);
+  const sent = go(newSession(), { type: send.action, story: send.story, consent: true }, 9000);
   assert.equal(sent.view!.kind, 'sent');
   assert.equal(sent.submit!.whatChanged, CHANGED);
   assert.equal(sent.submit!.startedAt, 1000);
@@ -256,7 +257,7 @@ test('Edit and Submit still work when the server forgot the session: the review 
 
 test('a carried story is checked again before it is saved, and junk is ignored', () => {
   const story = { values: { program: 'Camp', whatHappened: 'Call me at 780-555-1234 any time', whatChanged: CHANGED }, files: [], startedAt: 0 };
-  const out = go(newSession(), { type: 'send', story });
+  const out = go(newSession(), { type: 'send', story, consent: true });
   assert.equal(out.submit, undefined);
   assert.equal(out.view!.kind, 'form');
   assert.match(out.view!.error!, /phone number/);
@@ -264,4 +265,156 @@ test('a carried story is checked again before it is saved, and junk is ignored',
   const junk = go(newSession(), { type: 'edit', story: { values: null, files: 'nope', startedAt: 'x' } } as any);
   assert.equal(junk.view!.kind, 'form');
   assert.deepEqual(junk.view!.files, []);
+});
+
+test('a voice recording fills the story box it was made for, keeping everything else typed', () => {
+  const s = newSession();
+  go(s, { type: 'start' });
+  const out = go(s, { type: 'voice', field: 'whatChanged', text: '  They read aloud now.  ', values: { program: 'Camp', whatHappened: 'Half typed', whatChanged: '' } });
+  assert.equal(out.view!.kind, 'form');
+  assert.deepEqual(out.view!.values, { program: 'Camp', whatHappened: 'Half typed', whatChanged: 'They read aloud now.' });
+
+  const more = go(s, { type: 'voice', field: 'whatChanged', text: 'Every week.', values: out.view!.values });
+  assert.equal(more.view!.values.whatChanged, 'They read aloud now.\nEvery week.'); // added after what was there
+  assert.equal(more.view!.values.whatHappened, 'Half typed');
+
+  const long = go(s, { type: 'voice', field: 'whatChanged', text: 'x'.repeat(2000) });
+  assert.equal(long.view!.values.whatChanged!.length, 1000); // never more than the box holds
+  assert.match(long.say!, /cut off/);
+
+  assert.match(go(s, { type: 'voice', field: 'whatHappened', text: '   ' }).say!, /could not hear/);
+  assert.equal(go(s, { type: 'voice', field: 'program' as any, text: 'Camp' }).view, undefined); // only the story boxes
+
+  go(s, { type: 'review', values: { program: 'Camp', whatHappened: HAPPENED, whatChanged: CHANGED } });
+  assert.match(go(s, { type: 'voice', field: 'whatHappened', text: 'more' }).say!, /Tap Edit/);
+  assert.match(go(newSession(), { type: 'voice', field: 'whatHappened', text: 'hello' }).say!, /Open a story card/);
+});
+
+test('Submit needs the permission box: without it nothing is saved and the review card asks for it', () => {
+  const s = newSession();
+  go(s, { type: 'start' });
+  const review = go(s, { type: 'review', values: { program: 'Camp', whatHappened: HAPPENED, whatChanged: CHANGED } });
+  const box = (buildCardJson(review.view!) as any).body.find((b: any) => b.type === 'Input.Toggle');
+  assert.equal(box.id, 'consent');
+  assert.equal(box.value, 'false'); // never ticked for them
+  assert.match(box.title, /permission to share this story/);
+  assert.match(box.title, /parent or guardian/);
+  const form = buildCardJson(go(newSession(), { type: 'start' }).view!, { voice: true }) as any;
+  assert.equal(form.body.some((b: any) => b.type === 'Input.Toggle'), false); // only on the review card
+
+  const no = go(s, { type: 'send' });
+  assert.equal(no.submit, undefined);
+  assert.equal(no.view!.kind, 'review');
+  const asked = JSON.stringify(buildCardJson(no.view!));
+  assert.match(asked, /tick the permission box/);
+  assert.match(asked, new RegExp(HAPPENED)); // the story stays on the card
+
+  assert.equal(go(s, { type: 'send', consent: 'true' } as any).submit, undefined); // only a real tick counts
+
+  const yes = go(s, { type: 'send', consent: true });
+  assert.ok(yes.submit);
+  const sent = JSON.stringify(buildCardJson(yes.view!));
+  assert.match(sent, /PERMISSION TO SHARE/);
+  assert.doesNotMatch(sent, /tick the permission box/);
+});
+
+test('Edit clears the permission box, so a changed story is confirmed again', () => {
+  const s = newSession();
+  go(s, { type: 'start' });
+  go(s, { type: 'review', values: { program: 'Camp', whatHappened: HAPPENED, whatChanged: CHANGED } });
+  s.consent = true; // ticked, then the save failed and the card came back
+  assert.equal((buildCardJson(go(s, { type: 'removeFile', index: 0 }).view!) as any).body.find((b: any) => b.type === 'Input.Toggle').value, 'true');
+  go(s, { type: 'edit' });
+  const back = go(s, { type: 'review', values: { program: 'Camp', whatHappened: HAPPENED + ' More.', whatChanged: CHANGED } });
+  assert.equal(back.view!.consent, false);
+  assert.equal(back.view!.error, undefined);
+});
+
+test('a lost session still needs the permission box before a carried story is saved', () => {
+  const s = newSession();
+  go(s, { type: 'start' });
+  const review = go(s, { type: 'review', values: { program: 'Camp', whatHappened: HAPPENED, whatChanged: CHANGED } });
+  const send = (buildCardJson(review.view!) as any).actions.find((a: any) => a.title === 'Submit').data;
+  const no = go(newSession(), { type: 'send', story: send.story });
+  assert.equal(no.submit, undefined);
+  assert.match(no.view!.error!, /tick the permission box/);
+  assert.ok(go(newSession(), { type: 'send', story: send.story, consent: true }).submit);
+});
+
+test('form card: with voice on, each question shares a row with a microphone; never on the review card', () => {
+  const s = newSession();
+  const view = go(s, { type: 'start' }).view!;
+  const plain = buildCardJson(view) as any;
+  assert.equal(plain.body.find((b: any) => b.id === 'whatHappened').label, 'What happened?'); // voice off: as before
+  assert.doesNotMatch(JSON.stringify(plain), /"action":"record"/);
+
+  const card = buildCardJson(view, { voice: true, assetBase: 'https://tunnel.example' }) as any;
+  for (const field of ['whatHappened', 'whatChanged']) {
+    const at = card.body.findIndex((b: any) => b.id === field);
+    const row = card.body[at - 1];
+    assert.equal(row.type, 'ColumnSet'); // the question row sits right above its box
+    assert.equal(row.columns[0].items[0].text, field === 'whatHappened' ? 'What happened?' : 'What changed for the child or family?');
+    const mic = row.columns[1].items[0];
+    assert.equal(mic.id, `mic-${field}`);
+    assert.equal(mic.url, 'https://tunnel.example/assets/mic.png');
+    assert.deepEqual(mic.selectAction.data, { action: 'record', field, msteams: { type: 'task/fetch' } });
+    assert.ok(mic.altText);
+    assert.equal(card.body[at].label, undefined); // the question is in the row instead
+    assert.ok(card.body[at].placeholder);
+  }
+  assert.equal(card.body.find((b: any) => b.id === 'whatChanged').maxLength, 1000);
+
+  const review = go(s, { type: 'review', values: { program: 'Camp', whatHappened: HAPPENED, whatChanged: CHANGED } }).view!;
+  assert.doesNotMatch(JSON.stringify(buildCardJson(review, { voice: true })), /"action":"record"/);
+});
+
+test('after recording, the microphone becomes a pill: play plays it, the time records again', () => {
+  const s = newSession();
+  go(s, { type: 'start' });
+  const out = go(s, { type: 'voice', field: 'whatHappened', text: 'A child read aloud.', audio: { url: 'https://tunnel.example/recordings/abc', seconds: 71.4 } });
+  assert.deepEqual(out.view!.recordings.whatHappened, { url: 'https://tunnel.example/recordings/abc', seconds: 71, text: 'A child read aloud.' });
+  const card = buildCardJson(out.view!, { voice: true }) as any;
+  const row = card.body[card.body.findIndex((b: any) => b.id === 'whatHappened') - 1];
+  const pill = row.columns[1].items[0];
+  assert.equal(pill.id, 'rec-whatHappened');
+  const [playCol, timeCol] = pill.items[0].columns;
+  assert.equal(playCol.items[0].url, '/assets/play.png');
+  assert.deepEqual(playCol.items[0].selectAction.data, { action: 'play', field: 'whatHappened', msteams: { type: 'task/fetch' } });
+  assert.match(playCol.items[0].selectAction.title, /Play your recording \(1:11\)/);
+  assert.equal(timeCol.items[0].text, '1:11');
+  assert.deepEqual(timeCol.selectAction.data, { action: 'record', field: 'whatHappened', again: true, msteams: { type: 'task/fetch' } });
+  // the other box still has its microphone
+  assert.equal(card.body[card.body.findIndex((b: any) => b.id === 'whatChanged') - 1].columns[1].items[0].id, 'mic-whatChanged');
+});
+
+test('recording again replaces the words the last recording gave, unless the worker changed them', () => {
+  const s = newSession();
+  go(s, { type: 'start' });
+  const audio = (n: number) => ({ url: `/recordings/${n}`, seconds: 10 });
+  go(s, { type: 'voice', field: 'whatChanged', text: 'They read aloud nw.', audio: audio(1), values: { program: 'Camp', whatHappened: 'Typed', whatChanged: 'Intro.' } });
+  assert.equal(s.values.whatChanged, 'Intro.\nThey read aloud nw.');
+  const again = go(s, { type: 'voice', field: 'whatChanged', text: 'They read aloud now.', audio: audio(2), values: { ...s.values } });
+  assert.equal(again.view!.values.whatChanged, 'Intro.\nThey read aloud now.'); // replaced, not added twice
+  assert.equal(again.view!.recordings.whatChanged!.url, '/recordings/2');
+
+  const edited = go(s, { type: 'voice', field: 'whatChanged', text: 'Every week.', audio: audio(3), values: { ...s.values, whatChanged: 'Intro. They read aloud now, always.' } });
+  assert.equal(edited.view!.values.whatChanged, 'Intro. They read aloud now, always.\nEvery week.'); // edited words are kept
+  assert.equal(edited.view!.values.whatHappened, 'Typed');
+
+  const noAudio = go(s, { type: 'voice', field: 'whatChanged', text: 'More.' });
+  assert.equal(noAudio.view!.recordings.whatChanged, undefined); // words without a recording: no pill
+  assert.equal(go(s, { type: 'voice', field: 'whatHappened', text: 'x', audio: { url: 'javascript:alert(1)'.repeat(40), seconds: 3 } }).view!.recordings.whatHappened, undefined);
+
+  go(s, { type: 'startOver' });
+  assert.deepEqual(s.recordings, {});
+});
+
+test('a lost session keeps the recordings the review card carried', () => {
+  const s = newSession();
+  go(s, { type: 'start' });
+  go(s, { type: 'voice', field: 'whatHappened', text: HAPPENED, audio: { url: '/recordings/1', seconds: 9 }, values: { program: 'Camp', whatChanged: CHANGED } });
+  const review = go(s, { type: 'review', values: { program: 'Camp', whatHappened: HAPPENED, whatChanged: CHANGED } });
+  const edit = (buildCardJson(review.view!) as any).actions.find((a: any) => a.title === 'Edit').data;
+  const back = go(newSession(), { type: 'edit', story: edit.story });
+  assert.deepEqual(back.view!.recordings.whatHappened, { url: '/recordings/1', seconds: 9, text: HAPPENED });
 });

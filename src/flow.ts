@@ -60,7 +60,19 @@ export interface Session {
   errorField?: keyof Values;
   /** Show the hello line above the very first card. */
   greeting: boolean;
+  /** The worker ticked the permission box on the review card. Cleared whenever the story goes back to the form. */
+  consent: boolean;
+  /** The latest voice recording for each story box, so the worker can play it back. */
+  recordings: Recordings;
 }
+
+/** A voice answer for one story box: where the audio is, how long it is, and the words it gave. */
+export interface Recording {
+  url: string;
+  seconds: number;
+  text: string;
+}
+export type Recordings = Partial<Record<TextField, Recording>>;
 
 /** Everything needed to draw the card. */
 export interface View {
@@ -71,6 +83,8 @@ export interface View {
   error?: string;
   errorField?: keyof Values;
   greeting: boolean;
+  consent: boolean;
+  recordings: Recordings;
   programs: string[];
 }
 
@@ -83,7 +97,16 @@ export interface CarriedStory {
   values: Values;
   files: FileRef[];
   startedAt: number;
+  recordings?: Recordings;
 }
+
+/** The two story boxes on the form. A voice recording can fill either one. */
+export type TextField = 'whatHappened' | 'whatChanged';
+export const TEXT_FIELDS: Record<TextField, { label: string; placeholder: string; max: number }> = {
+  whatHappened: { label: 'What happened?', placeholder: 'Tell us about the impact moment', max: 1500 },
+  whatChanged: { label: 'What changed for the child or family?', placeholder: 'Tell us a story (4-5 sentences work great).', max: 1000 },
+};
+export const isTextField = (f: unknown): f is TextField => f === 'whatHappened' || f === 'whatChanged';
 
 export type Event =
   | { type: 'start' }
@@ -93,10 +116,13 @@ export type Event =
   | { type: 'help' }
   | { type: 'review'; values: Values }
   | { type: 'edit'; story?: CarriedStory }
-  | { type: 'send'; story?: CarriedStory }
+  /** `consent` is the permission box on the review card. Nothing is saved without it. */
+  | { type: 'send'; story?: CarriedStory; consent?: boolean }
   /** One or more attachments. `values` is what is typed on the card right now, when the caller can read it. */
   | { type: 'file'; files: FileRef[]; values?: Values }
   | { type: 'removeFile'; index: number; values?: Values }
+  /** Words from a voice recording, added to one story box. `audio` is the recording itself, for playing back. */
+  | { type: 'voice'; field: TextField; text: string; audio?: { url: string; seconds: number }; values?: Values }
   | { type: 'text'; text: string };
 
 export interface Out {
@@ -111,12 +137,17 @@ export interface Out {
 }
 
 export const PRIVACY_NOTE = 'Please leave out names and identifying details.';
+export const CONSENT_LABEL =
+  'I have permission to share this story. The child, family or person it is about (or their parent or guardian) agreed that the Foundation can use it.';
+export const CONSENT_NEEDED = 'Please tick the permission box before you submit. Nothing has been sent.';
 export const GREETING = 'Hi, I am Bear Friends Stories. Share a story in about two minutes. ' + PRIVACY_NOTE;
 
 const REMINDER = 'Your story card is above. Fill it in there, or say "start over".';
 const ALREADY_SENT = 'That story was already sent. Tap "Share another story" to start a new one.';
 
-export const newSession = (): Session => ({ phase: 'idle', values: {}, files: [], startedAt: 0, greeting: false });
+export const newSession = (): Session => ({
+  phase: 'idle', values: {}, files: [], startedAt: 0, greeting: false, consent: false, recordings: {},
+});
 
 /**
  * A light first check, not a guarantee. It catches the obvious (email, phone,
@@ -141,6 +172,8 @@ export function viewOf(s: Session, programs: string[]): View {
     error: s.error,
     errorField: s.errorField,
     greeting: s.greeting && s.phase === 'form',
+    consent: s.consent,
+    recordings: { ...s.recordings },
     programs,
   };
 }
@@ -153,6 +186,15 @@ function begin(s: Session, now: number, greeting: boolean) {
   s.errorField = undefined;
   s.startedAt = now;
   s.greeting = greeting;
+  s.consent = false;
+  s.recordings = {};
+}
+
+/** A recording as the card or a client sent it back, or undefined if it is not well formed. */
+function recordingFrom(r: unknown, text: string): Recording | undefined {
+  const x = r as { url?: unknown; seconds?: unknown } | undefined;
+  if (!x || typeof x.url !== 'string' || !x.url || x.url.length > 300 || typeof x.seconds !== 'number' || !Number.isFinite(x.seconds)) return undefined;
+  return { url: x.url, seconds: Math.min(3600, Math.max(0, Math.round(x.seconds))), text };
 }
 
 const clean = (v?: string) => (v ?? '').trim();
@@ -190,6 +232,11 @@ function restore(s: Session, story: CarriedStory, now: number) {
     .filter((f) => f && typeof f.url === 'string' && typeof f.name === 'string' && isPhoto(f))
     .slice(0, MAX_FILES)
     .map((f) => ({ name: f.name, url: f.url, contentType: str(f.contentType) }));
+  const recs = (story.recordings ?? {}) as Record<string, { text?: unknown } | undefined>;
+  for (const f of Object.keys(TEXT_FIELDS) as TextField[]) {
+    const r = recordingFrom(recs[f], str(recs[f]?.text) ?? '');
+    if (r) s.recordings[f] = r;
+  }
   s.phase = 'review';
 }
 
@@ -210,6 +257,7 @@ export function step(s: Session, e: Event, programs: string[], now: number = Dat
       s.phase = 'idle';
       s.values = {};
       s.files = [];
+      s.recordings = {};
       s.error = undefined;
       return { say: 'No problem. Nothing was saved. Message me whenever you are ready.' };
 
@@ -238,6 +286,7 @@ export function step(s: Session, e: Event, programs: string[], now: number = Dat
       };
       s.error = undefined;
       s.errorField = undefined;
+      s.consent = false;
 
       const fail = (msg: string, field: keyof Values): Out => {
         s.phase = 'form';
@@ -268,6 +317,7 @@ export function step(s: Session, e: Event, programs: string[], now: number = Dat
         restore(s, e.story, now);
       }
       s.phase = 'form';
+      s.consent = false; // a changed story needs the permission box ticked again
       s.error = undefined;
       s.errorField = undefined;
       return draw();
@@ -298,6 +348,31 @@ export function step(s: Session, e: Event, programs: string[], now: number = Dat
       };
     }
 
+    case 'voice': {
+      if (s.phase === 'review') return { say: 'Tap Edit to change your story, then record again.' };
+      if (s.phase !== 'form') return { say: 'Open a story card first (say hi), then record your answer.' };
+      if (!isTextField(e.field)) return {};
+      if (e.values) keepTyped(s, e.values);
+      const said = clean(e.text);
+      if (!said) return { ...draw(), say: 'I could not hear any words in that recording. Please try again, or type instead.' };
+      const box = clean(s.values[e.field]);
+      const last = s.recordings[e.field];
+      // Recording again replaces the words the last recording gave, while they are still in the box
+      // unchanged. Otherwise (first recording, or the worker edited them) the words are added at the end.
+      let next = last?.text && box.includes(last.text) ? box.replace(last.text, () => said) : box ? `${box}\n${said}` : said;
+      const { max } = TEXT_FIELDS[e.field];
+      let say: string | undefined;
+      if (next.length > max) {
+        next = next.slice(0, max);
+        say = `That was more than the box holds (${max} characters), so the end was cut off. Please check it.`;
+      }
+      s.values[e.field] = next;
+      const rec = recordingFrom(e.audio, said);
+      if (rec) s.recordings[e.field] = rec;
+      else delete s.recordings[e.field];
+      return { ...draw(), say };
+    }
+
     case 'removeFile': {
       if (s.phase !== 'form' && s.phase !== 'review') return {};
       if (e.values && s.phase === 'form') keepTyped(s, e.values);
@@ -314,6 +389,14 @@ export function step(s: Session, e: Event, programs: string[], now: number = Dat
         if (checked.view?.kind !== 'review') return checked;
       }
       if (s.phase !== 'review') return { say: 'Please review your story first.' };
+      if (e.consent !== true) {
+        s.consent = false;
+        s.error = CONSENT_NEEDED;
+        s.errorField = undefined;
+        return draw();
+      }
+      s.consent = true;
+      s.error = undefined;
       const draft: Draft = {
         program: s.values.program!,
         whatHappened: s.values.whatHappened!,

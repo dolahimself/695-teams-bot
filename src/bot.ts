@@ -6,7 +6,7 @@ import {
   TurnContext,
 } from 'botbuilder';
 import { buildCardActivity } from './card';
-import { CarriedStory, Event, FileRef, Out, Session, Values, newSession, parseText, step, viewOf } from './flow';
+import { CarriedStory, Event, FileRef, Out, Session, TextField, Values, isTextField, newSession, parseText, step, viewOf } from './flow';
 import type { StoryStore } from './store';
 
 const TEAMS_FILE = 'application/vnd.microsoft.teams.file.download.info';
@@ -31,6 +31,16 @@ interface Slot {
   typed?: Values;
 }
 
+/** What the bot needs for voice answers (see voice.ts). */
+export interface BotVoice {
+  /** Address of the recording page for one story box. `again` replaces the last recording. */
+  recordUrl(field: TextField, again?: boolean): string;
+  /** Address of a small player for a recording made here, or undefined if the address is not one of ours. */
+  listenUrl(recordingUrl: string): string | undefined;
+  /** Public address the card's microphone and play icons load from. */
+  assetBase: string;
+}
+
 /**
  * Sessions live in memory: fine for a prototype with a handful of testers.
  * Before real use, swap this Map for ConversationState with Azure Blob or Cosmos storage.
@@ -43,6 +53,8 @@ export class BearFriendsBot extends TeamsActivityHandler {
     private programs: string[],
     /** Gives the address of the upload page for the dialog. Without it the button explains how to attach in the chat. */
     private attachUrl?: () => string,
+    /** Voice answers. Without it the card has no microphone buttons. */
+    private voice?: BotVoice,
   ) {
     super();
 
@@ -83,8 +95,17 @@ export class BearFriendsBot extends TeamsActivityHandler {
         } else if (act === 'addMedia') {
           await context.sendActivity('Use the + button next to the message box to attach photos in this chat. They will show on your card.');
           return next();
-        } else if (act === 'edit' || act === 'send') {
-          event = { type: act, story: value!.story as CarriedStory | undefined }; // checked in flow.ts
+        } else if (act === 'record') {
+          await context.sendActivity('The recorder did not open here. Please type your answer, or use the microphone key on your phone keyboard.');
+          return next();
+        } else if (act === 'play') {
+          await context.sendActivity('Your recording could not be played here. Its words are in the box on your card.');
+          return next();
+        } else if (act === 'send') {
+          // The card sends the permission box as the text "true" or "false".
+          event = { type: 'send', story: value!.story as CarriedStory | undefined, consent: value!.consent === 'true' || value!.consent === true };
+        } else if (act === 'edit') {
+          event = { type: 'edit', story: value!.story as CarriedStory | undefined }; // checked in flow.ts
         } else if (act === 'again') {
           event = { type: act };
         } else {
@@ -102,13 +123,26 @@ export class BearFriendsBot extends TeamsActivityHandler {
     });
   }
 
-  /** The worker tapped "Add Photos": open the upload dialog. */
+  /** The worker tapped "Add Photos", the microphone, or a recording's play button or time: open that dialog. */
   protected async handleTeamsTaskModuleFetch(context: TurnContext, req: TaskModuleRequest): Promise<TaskModuleResponse> {
     const slot = this.slot(context);
     const d = (req.data ?? {}) as Record<string, unknown>;
+    if (d.action === 'play') {
+      const rec = isTextField(d.field) ? slot.session.recordings[d.field] : undefined;
+      const url = rec && this.voice?.listenUrl(rec.url);
+      if (!url) return { task: { type: 'message', value: 'That recording is no longer available. Tap its time to record again.' } };
+      return { task: { type: 'continue', value: { title: 'Your recording', url, fallbackUrl: url, width: 'small', height: 'small' } } };
+    }
     slot.typed = 'whatHappened' in d
       ? { program: String(d.program ?? ''), whatHappened: String(d.whatHappened ?? ''), whatChanged: String(d.whatChanged ?? '') }
       : undefined;
+    if (d.action === 'record') {
+      if (!this.voice || !isTextField(d.field)) {
+        return { task: { type: 'message', value: 'Voice recording is not set up. Please type your answer instead.' } };
+      }
+      const url = this.voice.recordUrl(d.field, d.again === true);
+      return { task: { type: 'continue', value: { title: 'Record your answer', url, fallbackUrl: url, width: 'medium', height: 'medium' } } };
+    }
     if (!this.attachUrl) {
       return { task: { type: 'message', value: 'Attach photos in the chat with the + button instead.' } };
     }
@@ -116,12 +150,18 @@ export class BearFriendsBot extends TeamsActivityHandler {
     return { task: { type: 'continue', value: { title: 'Add Photos', url, fallbackUrl: url, width: 'medium', height: 'large' } } };
   }
 
-  /** The dialog closed with the uploaded files: put them in the card's collection box. */
+  /** A dialog closed: put the uploaded photos in the collection box, or the recorded words in their story box. */
   protected async handleTeamsTaskModuleSubmit(context: TurnContext, req: TaskModuleRequest): Promise<TaskModuleResponse> {
     const slot = this.slot(context);
-    const data = (req.data ?? {}) as { files?: FileRef[] };
+    const data = (req.data ?? {}) as { files?: FileRef[]; voice?: { field?: unknown; text?: unknown; audio?: { url: string; seconds: number } } };
+    const voice = data.voice;
     const files = (data.files ?? []).filter((f) => f && f.url && f.name);
-    if (files.length) await this.run_(context, { type: 'file', files, values: slot.typed }, slot.cardId);
+    if (voice && isTextField(voice.field) && typeof voice.text === 'string' && voice.text.trim()) {
+      // The recording is checked in flow.ts; it is only ever played through listenUrl, which accepts our own recordings.
+      await this.run_(context, { type: 'voice', field: voice.field, text: voice.text, audio: voice.audio, values: slot.typed }, slot.cardId);
+    } else if (files.length) {
+      await this.run_(context, { type: 'file', files, values: slot.typed }, slot.cardId);
+    }
     slot.typed = undefined;
     return undefined as unknown as TaskModuleResponse; // an empty reply closes the dialog
   }
@@ -138,7 +178,7 @@ export class BearFriendsBot extends TeamsActivityHandler {
 
   private async show(context: TurnContext, slot: Slot, out: Out, cardMessageId?: string) {
     if (!out.view) return;
-    const activity = buildCardActivity(out.view);
+    const activity = buildCardActivity(out.view, { voice: !!this.voice, assetBase: this.voice?.assetBase });
     const target = cardMessageId ?? slot.cardId;
     if (!out.newMessage && target) {
       try {

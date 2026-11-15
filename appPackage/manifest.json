@@ -34,5 +34,6 @@
     }
   ],
   "permissions": ["identity", "messageTeamMembers"],
+  "devicePermissions": ["media"],
   "validDomains": ["{{DOMAIN}}"]
 }

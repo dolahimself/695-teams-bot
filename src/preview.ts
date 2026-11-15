@@ -3,7 +3,9 @@ import * as path from 'path';
 import { buildCardJson } from './card';
 import { createAttach } from './attach';
 import { PROGRAMS } from './config';
-import { Event, GREETING, Session, newSession, step } from './flow';
+import { Event, GREETING, Session, isTextField, newSession, step } from './flow';
+import { createTranscriber } from './speech';
+import { createVoice } from './voice';
 
 /**
  * Browser preview of the exact same flow and the exact same Adaptive Card the bot sends to Teams.
@@ -17,6 +19,19 @@ export function createPreviewApp() {
   // Relative links, so they point at whichever address the preview is served from (localhost or Vercel).
   const attach = createAttach(app, { baseUrl: '', dir: onVercel ? '/tmp/preview-uploads' : path.join(root, 'data', 'preview-uploads') });
   app.get('/attach-url', (_req, res) => res.json({ url: attach.attachUrl('preview') }));
+  // With SPEECH_KEY and SPEECH_REGION set, the preview records through the speech service like Teams;
+  // without them the recording page falls back to the browser's own speech recognition.
+  const voice = createVoice(app, {
+    baseUrl: '',
+    signer: attach,
+    transcriber: createTranscriber(),
+    dir: onVercel ? '/tmp/preview-recordings' : path.join(root, 'data', 'preview-recordings'),
+  });
+  app.get('/record-url', (req, res) => {
+    const field = req.query.field;
+    if (!isTextField(field)) return res.sendStatus(400);
+    res.json({ url: voice.recordUrl('preview', field, req.query.again === '1') });
+  });
 
   app.use(express.json());
   app.use('/assets', express.static(path.join(root, 'assets')));
@@ -38,8 +53,10 @@ export function createPreviewApp() {
       say: out.say ?? null,
       sent: !!out.submit,
       greeting: out.view?.greeting ? GREETING : null,
-      card: out.view ? buildCardJson(out.view) : null,
+      card: out.view ? buildCardJson(out.view, { voice: true, assetBase: '' }) : null,
       files: out.view ? out.view.files.map((f) => f.url) : null,
+      // So the page can play a recording from the pill (from its own copy when it has one).
+      recordings: out.view ? out.view.recordings : null,
     });
   });
 

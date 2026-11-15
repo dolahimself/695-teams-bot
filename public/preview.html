@@ -66,7 +66,19 @@
   .ac-pushButton { cursor:pointer; min-height:44px; border-radius:8px !important; border:1.5px solid var(--brand) !important; background:#fff !important; color:var(--brand) !important; font:600 16px var(--font) !important; }
   .ac-pushButton.style-positive { background:var(--brand) !important; color:#fff !important; }
   .ac-pushButton div { color:inherit !important; font:inherit !important; }
+  /* Story box question row: the microphone sits where a character count would, then becomes a recording pill */
+  [id^="mic-"] img { border-radius:50%; transition:filter .15s; } [id^="mic-"] img:hover { filter:brightness(.95) saturate(1.2); }
+  [id^="mic-"] img:focus-visible, [id^="rec-"] .ac-selectable:focus-visible { outline:2px solid var(--brand); outline-offset:2px; }
+  [id^="rec-"] { background:#fff !important; border:1px solid #DEDEDE; border-radius:999px; padding:4px 14px 4px 4px !important; box-shadow:0 1px 3px rgba(0,0,0,.10); }
+  [id^="rec-"] .ac-columnSet { align-items:center; }
+  [id^="rec-"] .ac-selectable { cursor:pointer; border-radius:999px; }
+  [id^="rec-"] .ac-textBlock { font:600 15px var(--font) !important; font-variant-numeric:tabular-nums; min-width:2.6em; }
+  [id^="rec-"] img { display:block; }
+  [id^="rec-"].playing { border-color:var(--brand); }
+  .ac-toggleInput { align-items:flex-start !important; } .ac-toggleInput input[type=checkbox] { width:20px; height:20px; margin:1px 10px 0 0 !important; accent-color:var(--brand); flex:none; cursor:pointer; }
   textarea.ac-input, input.ac-input { border:1px solid #C8C8C8 !important; border-radius:6px !important; padding:10px 12px !important; font-size:15px !important; min-height:44px; font-family:var(--font); }
+  select.ac-input { width:100%; min-height:44px; border:1px solid #C8C8C8 !important; border-radius:6px !important; padding:0 36px 0 12px !important; font:15px var(--font) !important; color:var(--ink); cursor:pointer; -webkit-appearance:none; appearance:none; background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23616161' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 14px center !important; }
+  select.ac-input:focus, textarea.ac-input:focus, input.ac-input:focus { outline:2px solid var(--brand); outline-offset:-1px; }
   .tabbar { display:flex; justify-content:space-around; padding:6px 0 4px; border-top:1px solid #EBEBEB; }
   .tabbar .nav { display:flex; flex-direction:column; align-items:center; font-size:11px; font-weight:600; color:#424242; gap:2px; } .tabbar .nav.on { color:var(--brand); }
 
@@ -106,7 +118,7 @@
         <h1>Bear Friends Stories</h1>
         <p class="lead">A quick way to share a story from camp, family support, youth programs or community events with the CFSGE Foundation team.</p>
         <h3>How it works</h3>
-        <ol><li>Pick the program and answer two short questions.</li><li>Check your story on the review card.</li><li>Tap Submit. Nothing is sent until you do.</li></ol>
+        <ol><li>Pick the program and answer two short questions.</li><li>Check your story on the review card.</li><li>Tick the box to confirm you have permission to share it, then tap Submit. Nothing is sent until you do.</li></ol>
         <h3>Before you submit, check</h3>
         <p>Ontario law protects personal information about the services children and families receive, and the agency must keep it safe and secure. Read down this list once before you tap Submit.</p>
         <ul class="check">
@@ -197,6 +209,8 @@ function drawCard(json, inPlace) {
     const data = Object.assign({}, action.data || {});
     for (const i of card.getAllInputs()) data[i.id] = i.value;
     if (data.action === 'addMedia') return openDialog();
+    if (data.action === 'record') return openRecorder(data.field, !!data.again);
+    if (data.action === 'play') return togglePlay(data.field);
     send(fromCard(data));
   };
   currentCard = card;
@@ -286,16 +300,27 @@ function openViewer(photos, start, opener) {
 }
 
 // Same as Teams: the button opens a dialog that holds a real file picker.
-async function openDialog() {
-  const { url } = await (await fetch('/attach-url')).json();
+// Opens one of the server's dialog pages in a pop-up, as Teams opens it in a dialog.
+// `key` is the field the page posts its result under; `onResult` gets the message when it closes.
+function openFrame(url, title, key, onResult) {
   const wrap = document.createElement('div'); wrap.className = 'dlg';
-  wrap.innerHTML = '<div class="dlgbox"><iframe title="Add Photos"></iframe></div>';
-  wrap.querySelector('iframe').src = url;
-  const typedNow = typed();
+  wrap.innerHTML = '<div class="dlgbox"><iframe allow="microphone"></iframe></div>';
+  const frame = wrap.querySelector('iframe'); frame.title = title; frame.src = url;
   const close = () => { window.removeEventListener('message', onMsg); wrap.remove(); };
   const onMsg = (e) => {
-    if (e.origin !== location.origin || !e.data || !e.data.bearAttach) return;
-    const files = e.data.bearAttach.files || []; const picked = e.data.picked || []; close();
+    if (e.origin !== location.origin || !e.data || !(key in e.data)) return;
+    close(); onResult(e.data);
+  };
+  window.addEventListener('message', onMsg);
+  wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
+  document.body.appendChild(wrap);
+}
+
+async function openDialog() {
+  const { url } = await (await fetch('/attach-url')).json();
+  const typedNow = typed();
+  openFrame(url, 'Add Photos', 'bearAttach', (d) => {
+    const files = (d.bearAttach && d.bearAttach.files) || []; const picked = d.picked || [];
     if (!files.length) return;
     files.forEach((f, i) => {
       kinds.set(f.url, f.contentType || '');
@@ -303,16 +328,63 @@ async function openDialog() {
       if (picked[i] instanceof Blob) blobs.set(f.url, { url: URL.createObjectURL(picked[i]), type: f.contentType || picked[i].type, name: f.name });
     });
     send({ type: 'file', files, values: typedNow });
-  };
-  window.addEventListener('message', onMsg);
-  wrap.addEventListener('click', (e) => { if (e.target === wrap) close(); });
-  document.body.appendChild(wrap);
+  });
 }
+
+// The microphone (or a recording's time): the words come back and go in that story box, keeping
+// everything else typed, and the recording shows beside the question as a play button and its length.
+async function openRecorder(field, again) {
+  const { url } = await (await fetch('/record-url?field=' + encodeURIComponent(field) + (again ? '&again=1' : ''))).json();
+  const typedNow = typed();
+  openFrame(url, 'Record your answer', 'bearVoice', (d) => {
+    const v = d.bearVoice;
+    if (!v || !v.text) return;
+    // Keep the browser's own copy of the recording to play from (the server may be a different instance on Vercel).
+    if (v.audio && v.audio.url && d.audio instanceof Blob) audioBlobs.set(v.audio.url, URL.createObjectURL(d.audio));
+    if (playingField === field) player.pause();
+    send({ type: 'voice', field: v.field, text: v.text, audio: v.audio, values: typedNow });
+  });
+}
+
+// Playing a recording in place. Teams opens a small player instead, since a card cannot play sound.
+let recordings = {};            // field -> { url, seconds } for the card on screen
+const audioBlobs = new Map();   // recording url -> local object URL
+const player = new Audio();
+let playingField = null;
+const PAUSE_ICON = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle cx="24" cy="24" r="23" fill="#242424" stroke="#fff" stroke-width="2"/><rect x="17" y="15" width="5" height="18" rx="1.5" fill="#fff"/><rect x="26" y="15" width="5" height="18" rx="1.5" fill="#fff"/></svg>');
+const mmss = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+function togglePlay(field) {
+  const rec = recordings[field]; if (!rec) return;
+  if (playingField === field && !player.paused) { player.pause(); return; }
+  player.src = audioBlobs.get(rec.url) || (rec.url.startsWith('local:') ? '' : rec.url);
+  playingField = field;
+  if (!player.src || player.src === location.href) { bubble('bot', 'That recording is not on this device any more. Tap its time to record again.'); return; }
+  player.currentTime = 0;
+  player.play().catch(() => bubble('bot', 'That recording could not be played here. Its words are in the box on your card.'));
+}
+// Keeps each pill in step with the player: pause icon and a running time while it plays.
+function drawPills() {
+  for (const field of Object.keys(recordings)) {
+    const pill = document.getElementById('rec-' + field); if (!pill) continue;
+    const on = playingField === field && !player.paused;
+    pill.classList.toggle('playing', on);
+    const img = pill.querySelector('img');
+    if (img) {
+      img.src = on ? PAUSE_ICON : '/assets/play.png';
+      const label = (on ? 'Pause your recording' : 'Play your recording') + ' (' + mmss(recordings[field].seconds) + ')';
+      img.setAttribute('aria-label', label); img.title = label;
+    }
+    const time = pill.querySelector('.ac-textBlock');
+    if (time) time.textContent = on ? mmss(player.currentTime) : mmss(recordings[field].seconds);
+  }
+}
+['play', 'pause', 'ended', 'timeupdate'].forEach((e) => player.addEventListener(e, drawPills));
 
 function fromCard(d) {
   if (d.action === 'review') return { type: 'review', values: { program: d.program || '', whatHappened: d.whatHappened || '', whatChanged: d.whatChanged || '' } };
   if (d.action === 'removeFile') return { type: 'removeFile', index: d.index, values: { program: d.program || '', whatHappened: d.whatHappened || '', whatChanged: d.whatChanged || '' } };
-  if (d.action === 'edit' || d.action === 'send') return { type: d.action, story: d.story };
+  if (d.action === 'send') return { type: 'send', story: d.story, consent: d.consent === 'true' };
+  if (d.action === 'edit') return { type: 'edit', story: d.story };
   return { type: d.action };
 }
 
@@ -321,8 +393,11 @@ async function send(event) {
   const r = await res.json();
   if (r.card) {
     if (r.greeting && r.newMessage) bubble('bot', r.greeting);
+    recordings = r.recordings || {};
+    if (playingField && !recordings[playingField]) player.pause();
     const inner = drawCard(r.card, !r.newMessage && !!cardWrap);
     addThumbs(inner, r.files);
+    drawPills();
   }
   if (r.say) bubble('bot', r.say);
 }
@@ -364,7 +439,7 @@ document.querySelectorAll('.tabs span').forEach((e) => e.onclick = () => tab(e.d
 document.getElementById('goChat').onclick = () => tab('chat');
 const q = new URLSearchParams(location.search).get('view');
 if (q === 'mobile' || q === 'desktop') document.body.dataset.force = q;
-const reset = () => { msgs.innerHTML = ''; cardWrap = null; lastStamp = 0; send({ type: 'start' }); };
+const reset = () => { player.pause(); msgs.innerHTML = ''; cardWrap = null; lastStamp = 0; send({ type: 'start' }); };
 document.querySelectorAll('[data-reset]').forEach((b) => b.onclick = () => { tab('chat'); reset(); });
 document.getElementById('plus2').onclick = () => document.getElementById('file').click();
 send({ type: 'start' });

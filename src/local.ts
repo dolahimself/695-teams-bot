@@ -3,17 +3,19 @@
  *   npm run local
  * It plays the same flow the Teams card uses. Stories are written to data/stories.json.
  *
- * Commands:  hi | 1..5 or a program name | happened <text> | changed <text>
- *            review | edit | send | attach <file> [<file> ...] | remove <number> | again | start over | cancel
+ * Commands:  hi | a program number or name | happened <text> | changed <text>
+ *            review | agree (ticks the permission box) | edit | send | attach <file> [<file> ...] | remove <number>
+ *            again | start over | cancel
  */
 import * as readline from 'readline';
 import { PROGRAMS } from './config';
-import { Event, Out, Values, newSession, parseText, step } from './flow';
+import { CONSENT_LABEL, Event, Out, Values, newSession, parseText, step } from './flow';
 import { FileStore } from './store';
 
 const store = new FileStore();
 const session = newSession();
 const values: Values = {};
+let agreed = false; // the permission box on the review card
 
 function render(out: Out) {
   if (out.say) console.log(`\nBear: ${out.say}`);
@@ -31,7 +33,8 @@ function render(out: Out) {
   console.log(`| What happened: ${v.values.whatHappened ?? ''}`);
   console.log(`| What changed:  ${v.values.whatChanged ?? ''}`);
   console.log(`| Photos: ${v.files.length ? v.files.map((f, i) => `${i + 1}. ${f.name}`).join(', ') : 'none'}`);
-  console.log(v.kind === 'form' ? '| [review]' : v.kind === 'review' ? '| [send] [edit]' : '| Sent. [again]');
+  if (v.kind === 'review') console.log(`| [${agreed ? 'x' : ' '}] ${CONSENT_LABEL}`);
+  console.log(v.kind === 'form' ? '| [review]' : v.kind === 'review' ? '| [agree] [send] [edit]' : '| Sent. [again]');
   console.log('+--------------------------------------------+');
 }
 
@@ -55,9 +58,12 @@ rl.on('line', async (line) => {
   } else if (lower === 'changed') {
     values.whatChanged = arg;
     return console.log('(noted)');
-  } else if (lower === 'review') event = { type: 'review', values: { ...values } };
-  else if (lower === 'edit') event = { type: 'edit' };
-  else if (lower === 'send') event = { type: 'send' };
+  } else if (lower === 'agree') {
+    agreed = true;
+    return console.log('(permission box ticked)');
+  } else if (lower === 'review') { agreed = false; event = { type: 'review', values: { ...values } }; }
+  else if (lower === 'edit') { agreed = false; event = { type: 'edit' }; }
+  else if (lower === 'send') event = { type: 'send', consent: agreed };
   else if (lower === 'again') { Object.keys(values).forEach((k) => delete (values as any)[k]); event = { type: 'again' }; }
   else if (lower === 'attach') event = { type: 'file', files: (arg || 'photo.jpg').split(/\s+/).map((name) => ({ name, url: `file://local/${name}` })) };
   else if (lower === 'remove') event = { type: 'removeFile', index: Number(arg) - 1, values: { ...values } };
@@ -66,5 +72,6 @@ rl.on('line', async (line) => {
   const out = step(session, event, PROGRAMS);
   if (out.submit) console.log(`(saved as ${await store.save(out.submit, Date.now())})`);
   if (event.type === 'startOver') Object.keys(values).forEach((k) => delete (values as any)[k]);
+  if (event.type === 'startOver' || event.type === 'again' || event.type === 'cancel') agreed = false;
   render(out);
 });
