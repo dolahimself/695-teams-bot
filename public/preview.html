@@ -351,7 +351,7 @@ let recordings = {};            // field -> { url, seconds } for the card on scr
 const audioBlobs = new Map();   // recording url -> local object URL
 const player = new Audio();
 let playingField = null;
-const PAUSE_ICON = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle cx="24" cy="24" r="23" fill="#242424" stroke="#fff" stroke-width="2"/><rect x="17" y="15" width="5" height="18" rx="1.5" fill="#fff"/><rect x="26" y="15" width="5" height="18" rx="1.5" fill="#fff"/></svg>');
+const PAUSE_ICON = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle cx="24" cy="24" r="23" fill="#5B5FC7" stroke="#fff" stroke-width="2"/><rect x="17" y="15" width="5" height="18" rx="1.5" fill="#fff"/><rect x="26" y="15" width="5" height="18" rx="1.5" fill="#fff"/></svg>');
 const mmss = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
 function togglePlay(field) {
   const rec = recordings[field]; if (!rec) return;
