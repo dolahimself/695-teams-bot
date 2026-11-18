@@ -10,8 +10,9 @@ services:
     startCommand: node dist/src/preview-server.js
     healthCheckPath: /config
     envVars:
+      # 22 or newer: the Teams library (botbuilder) depends on Azure packages that require it, and yarn enforces that.
       - key: NODE_VERSION
-        value: "20"
+        value: "22"
       - key: STORE
         value: sheet
       # The Apps Script web app URL (ends in /exec) and the SECRET script property you set there.
