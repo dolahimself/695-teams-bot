@@ -33,6 +33,10 @@
   .composer > svg { color:var(--ink); } .composer .send { display:none; }
   .nav { display:none; }
   .tabs { display:flex; } .tabs span { cursor:pointer; }
+  /* Says whether this link is a demo or a pilot collecting real stories */
+  .mode { padding:8px 14px; font-size:13px; line-height:1.4; color:var(--mute); background:#F5F5F5; border-bottom:1px solid #EBEBEB; }
+  .mode.real { color:#242424; background:#EEF0FB; border-bottom-color:#C9CCF2; }
+  .mode[hidden] { display:none; }
   .about { flex:1; overflow-y:auto; padding:24px 20px; max-width:640px; width:100%; margin:0 auto; } .about[hidden] { display:none; }
   .about img { width:72px; height:72px; border-radius:50%; } .about h1 { font-size:22px; margin:10px 0 6px; font-weight:600; }
   .about h3 { font-size:15px; margin:20px 0 6px; font-weight:600; } .about p,.about li { font-size:15px; line-height:1.45; color:#424242; margin:0 0 6px; } .about ol { padding-left:20px; margin:0; }
@@ -113,6 +117,7 @@
     <div class="main">
       <div class="head"><span class="back" data-reset title="Start over"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></span><img class="av" src="/assets/bear.png" alt=""><div class="t"><b>Bear Friends Stories</b><small>Share a story</small></div><div class="ic"><span class="vc"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v4a2 2 0 01-2 2A16 16 0 013 6a2 2 0 012-2z"/></svg></span><span class="vc"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3"/></svg></span><span data-reset title="Start over" style="cursor:pointer"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></span></div></div>
       <div class="tabs"><span class="on" data-tab="chat">Chat</span><span data-tab="about">About</span></div>
+      <div class="mode" id="mode" role="note" hidden></div>
       <div class="about" id="about" hidden>
         <img src="/assets/bear.png" alt="">
         <h1>Bear Friends Stories</h1>
@@ -135,7 +140,7 @@
         <h3>What the bot checks</h3>
         <p>The bot looks for the obvious, like emails, phone numbers, links and postal codes, and asks you to remove them. It is a light check and does not catch everything, so please read your story once before you submit.</p>
         <h3>What happens next</h3>
-        <p>Stories go to a private list. The Foundation team reviews each one, and nothing is used until it is approved.</p>
+        <p id="nextSteps">Stories go to a private list. The Foundation team reviews each one, and nothing is used until it is approved.</p>
         <h3>If something went wrong</h3>
         <p>If you shared something you should not have, or a story should not be used, contact the agency's Privacy Lead on 1-888-753-8681.</p>
         <p><a href="https://cfsge.ca/privacy-statement/" target="_blank" rel="noopener">Read the agency's privacy statement</a><br><small>Summarised from the statement page, last modified 29 June 2026.</small></p>
@@ -442,6 +447,14 @@ if (q === 'mobile' || q === 'desktop') document.body.dataset.force = q;
 const reset = () => { player.pause(); msgs.innerHTML = ''; cardWrap = null; lastStamp = 0; send({ type: 'start' }); };
 document.querySelectorAll('[data-reset]').forEach((b) => b.onclick = () => { tab('chat'); reset(); });
 document.getElementById('plus2').onclick = () => document.getElementById('file').click();
+// Demo or pilot: a pilot collects real stories, so it says so above the chat.
+fetch('/config').then((r) => r.json()).then((c) => {
+  const mode = document.getElementById('mode');
+  mode.textContent = c.collecting ? c.notice : 'Demo: nothing you type here is saved.';
+  mode.classList.toggle('real', !!c.collecting);
+  mode.hidden = false;
+  if (c.collecting) document.getElementById('nextSteps').textContent = 'Stories go to a private list. ' + c.reviewTeam + ' reviews each one, and nothing is used until it is approved.';
+}).catch(() => {});
 send({ type: 'start' });
 </script>
 </body>

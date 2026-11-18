@@ -24,9 +24,11 @@ The card is one Adaptive Card that the bot updates in place. Teams uses the full
 | `src/bot.ts` | Connects it to Teams: card taps, typed messages, file attachments, in-place updates. |
 | `src/attach.ts` | The Add Photos dialog page and uploads. |
 | `src/voice.ts`, `src/speech.ts` | The recording dialog and player pages, and turning a recording into text with Azure AI Speech. |
-| `src/store.ts` | Where stories go: `file` (local test), `graph` (SharePoint list), `flow` (Power Automate). |
+| `src/store.ts`, `src/sheet.ts` | Where stories go: `file` (local test), `graph` (SharePoint list), `flow` (Power Automate), `sheet` (a Google Sheet, for a pilot). |
+| `scripts/google-sheet-collector.gs` | The Apps Script that receives stories into the Google Sheet (see Collect real stories). |
+| `render.yaml` | Hosts the pilot link on Render. |
 | `src/local.ts` | Run the same flow in your terminal. |
-| `src/preview.ts`, `src/preview-server.ts`, `public/preview.html` | The browser preview (`npm run preview`). |
+| `src/preview.ts`, `src/preview-server.ts`, `public/preview.html` | The browser preview (`npm run preview`). A demo by default; a pilot that saves stories when `STORE` is set. |
 | `src/index.ts` | The web server Teams talks to (`/api/messages`). |
 | `appPackage/` | Teams app manifest and the bear icon. `npm run package` zips them. |
 | `assets/bear.png` | The bear image. |
@@ -77,6 +79,7 @@ Pick one:
 - **`STORE=graph`**: needs an app registration with permission to write to the site (Sites.Selected is best; Sites.ReadWrite.All works but needs an admin to consent). Fill the `GRAPH_*` and `SHAREPOINT_*` values.
 - **`STORE=flow`**: the bot posts JSON to a Power Automate flow, and the flow creates the item and sends the reviewer an approval request. This avoids Graph permissions, but the "When an HTTP request is received" trigger can be a premium connector.
 - **`STORE=file`**: local only.
+- **`STORE=sheet`**: a Google Sheet the project team keeps, for a pilot. See **Collect real stories (pilot)** below.
 
 ## 5. Voice: record an answer instead of typing it
 
@@ -85,12 +88,49 @@ Each story box has a **microphone** at the right of its question, where a charac
 Once recorded, the microphone becomes a small pill with a **play button** and the recording's **length** (for example 1:11). The play button plays it back; tapping the length opens the recorder again. Recording again replaces the last recording, and replaces its words in the box if the worker has not changed them (otherwise the new words are added at the end). In Teams, play opens a small player, because a card cannot play sound itself; the preview plays it in place.
 
 - **Turn it on:** create an **Azure AI Speech** resource in a Canadian region (for example `canadacentral`, so recordings are processed in Canada), then set `SPEECH_KEY` and `SPEECH_REGION` in `.env`. `SPEECH_LOCALES` sets the language (`en-CA` by default; `en-CA,fr-CA` lets people speak either). Without these, Teams shows no microphone buttons.
-- **Privacy:** the recording goes from the dialog to this server and on to the speech service once. So the worker can play it back, this server keeps it in `data/recordings` (`/tmp` on Vercel). Recordings are not sent with the story or saved to SharePoint, and there is no automatic clean-up yet, so clear that folder from time to time (as with `data/uploads`). Only the text the worker accepts goes on the card, and the same privacy check runs on it at Review.
+- **Privacy:** the recording goes from the dialog to this server and on to the speech service once. So the worker can play it back, this server keeps it in `data/recordings` (`/tmp` on Vercel). With `STORE=sheet` the recording is saved with the story in the pilot's Drive folder and this server deletes its copy; the SharePoint and Power Automate stores do not take recordings. There is no automatic clean-up of unsubmitted recordings yet, so clear that folder from time to time (as with `data/uploads`). Only the text the worker accepts goes on the card, and the same privacy check runs on it at Review.
 - **Limits:** up to 3 minutes per recording. A box still holds its normal maximum (1,500 or 1,000 characters); anything longer is cut off with a message.
 - **Teams:** the microphone and play icons load from `PUBLIC_BASE_URL/assets`, like the dialogs. The dialog needs the microphone, so the app package asks for it (`devicePermissions: media`), and Teams asks the worker once. Recording in a dialog has not been tested on Teams mobile; there, the microphone key on the phone keyboard also types into the card's boxes.
 - **Preview:** with the same two settings the preview uses the speech service too. Without them it falls back to the browser's own speech recognition (Chrome, Edge, Safari), so the demo works with no account. That sends audio to the browser maker's service, so it is for demos only and is never used in Teams.
 
-## 6. The Foundation's approval gate
+## 6. Collect real stories (pilot)
+
+The browser preview can be shared as a **pilot** that keeps the stories people submit. Set `STORE=sheet` and it:
+
+- shows a line above the chat saying stories are real and who reviews them (`PILOT_NOTICE`, `REVIEW_TEAM`),
+- saves each submitted story as a row in a Google Sheet, with its photos and voice recordings in a Drive folder for that story,
+- deletes its own copies of the photos and recordings once they are saved,
+- never uses the browser's own speech recognition (it would send real people's audio to Google or Apple): voice needs an Azure Speech key, and without one the microphones are hidden.
+
+Without `STORE` (or with `STORE=file`) the preview stays a demo that saves nothing, and says so.
+
+### Before you share the link
+
+- Get the agency's agreement, and ethics approval if this is part of course research. Make the notice and the About text match the consent wording you were approved for.
+- Keep the Sheet in a **team** Google account, not a personal one. Leave the Sheet and the files folder private and share them only with the people who review stories. Agree when the pilot data will be deleted.
+- Be clear in your consent wording about where stories go: Render's servers are in the US, and Google keeps the Sheet and files.
+- Stories still pass the privacy check and need the permission box, but people can still make mistakes. Review every row before using it.
+
+### Set up the Google Sheet
+
+1. In the team's Google account, create a Sheet. Open **Extensions, Apps Script**, replace everything in `Code.gs` with `scripts/google-sheet-collector.gs`, and save.
+2. **Project Settings** (gear icon), **Script properties**: add `SECRET` with a long random value. Optionally add `FOLDER_ID` (the id from a Drive folder's link) for the story files; otherwise a "Bear Friends Stories files" folder is made on the first story.
+3. **Deploy, New deployment**, type **Web app**, execute as **Me**, access **Anyone**. Allow access when asked, then copy the web app URL (it ends in `/exec`). "Anyone" only means it can be called without signing in; the script refuses any request without the secret. If you change the script later, deploy a **new version** of the same deployment so the URL stays the same.
+
+### Host the pilot link on Render
+
+Vercel can lose photos between requests, so the pilot runs on one small server instead.
+
+1. Push the repo to GitHub. In Render choose **New, Blueprint** and pick the repo; `render.yaml` sets it up.
+2. When asked, paste `SHEET_URL` (the web app URL) and `SHEET_SECRET` (the same value as `SECRET`).
+3. Optional, under **Environment**: `SPEECH_KEY` (Azure Speech, region `canadacentral`; the free F0 tier or Azure for Students credit is enough for a pilot), `PILOT_NOTICE`, `REVIEW_TEAM`, `PROGRAMS`.
+4. Open the Render link. The line above the chat should say this is a pilot. Submit one test story with a photo and a recording, check the new row and its folder, then delete the test row and folder before you share the link.
+
+To try it locally first: `STORE=sheet SHEET_URL=... SHEET_SECRET=... npm run preview`.
+
+**Limits:** Render's free plan sleeps after 15 minutes without visitors and takes about a minute to wake; a story someone was halfway through when it slept is lost (submitted stories are already in the Sheet). Files over 25 MB are skipped; the story still saves. If a save fails, the card goes back to review and the worker can tap Submit again.
+
+## 7. The Foundation's approval gate
 
 Build it in Power Automate: when an item is created, start an approval for whoever reviews stories at the Foundation (a person or a shared group, so it keeps working when staff change), then copy approved stories to the Approved library and set `Status`. The Figma file shows the approval card (screen 6).
 

@@ -1,0 +1,27 @@
+# Render blueprint for the pilot link: the browser preview, saving real stories to a Google Sheet.
+# In Render: New > Blueprint, pick this repository, then fill in the two secret values it asks for.
+# See "Collect real stories (pilot)" in README.md first.
+services:
+  - type: web
+    name: bear-friends-stories-pilot
+    runtime: node
+    plan: free
+    buildCommand: yarn install --non-interactive && yarn build
+    startCommand: node dist/src/preview-server.js
+    healthCheckPath: /config
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: STORE
+        value: sheet
+      # The Apps Script web app URL (ends in /exec) and the SECRET script property you set there.
+      - key: SHEET_URL
+        sync: false
+      - key: SHEET_SECRET
+        sync: false
+      # Voice: add SPEECH_KEY under Environment once you have an Azure Speech resource. Without it the
+      # pilot hides the microphones (the browser's own recogniser is never used for real stories).
+      - key: SPEECH_REGION
+        value: canadacentral
+      # Optional, under Environment: PILOT_NOTICE (the line shown above the chat) and REVIEW_TEAM
+      # (who the Sent message says will review the story). Match them to your consent wording.

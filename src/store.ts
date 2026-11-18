@@ -1,6 +1,15 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import type { Draft, FileRef } from './flow';
+import { SheetStore } from './sheet';
+
+/** A photo or recording read back from this server's disk (or fetched), ready to send on. */
+export interface LocalFile {
+  bytes: Buffer;
+  type: string;
+  name: string;
+}
+export type ReadFile = (url: string) => Promise<LocalFile | undefined>;
 
 export interface StoryStore {
   /** Saves one submitted story. Returns an id or link for logs. */
@@ -185,8 +194,17 @@ export class FlowStore implements StoryStore {
   }
 }
 
-export function createStore(env: NodeJS.ProcessEnv = process.env): StoryStore {
+/**
+ * The store named by STORE. `readLocal` lets a store read the photos and recordings this server kept,
+ * for stores that send files on (STORE=sheet).
+ */
+export function createStore(env: NodeJS.ProcessEnv = process.env, readLocal?: ReadFile): StoryStore {
   const kind = (env.STORE ?? 'file').toLowerCase();
+  if (kind === 'sheet') {
+    if (!env.SHEET_URL) throw new Error('Missing SHEET_URL in .env (STORE=sheet)');
+    if (!env.SHEET_SECRET) throw new Error('Missing SHEET_SECRET in .env (STORE=sheet)');
+    return new SheetStore({ url: env.SHEET_URL, secret: env.SHEET_SECRET, readLocal });
+  }
   if (kind === 'graph') {
     const need = (k: string) => {
       const v = env[k];

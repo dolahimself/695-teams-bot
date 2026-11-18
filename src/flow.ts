@@ -41,6 +41,8 @@ export interface Draft {
   whatChanged: string;
   files: FileRef[];
   startedAt: number;
+  /** Voice answers the words came from, per story box. Stores that keep audio save these too. */
+  recordings: Recordings;
 }
 
 export interface Values {
@@ -403,6 +405,7 @@ export function step(s: Session, e: Event, programs: string[], now: number = Dat
         whatChanged: s.values.whatChanged!,
         files: [...s.files],
         startedAt: s.startedAt,
+        recordings: { ...s.recordings },
       };
       s.phase = 'sent';
       return { ...draw(), submit: draft };

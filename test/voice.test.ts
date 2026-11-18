@@ -100,3 +100,19 @@ test('no words, no kept recording', async () => {
     server.close();
   }
 });
+
+test('kept recordings can be read back for a store, then removed', async () => {
+  const { voice, server, put } = await serve({ transcribe: async () => 'Some words.' });
+  try {
+    const body = (await (await put('audio/mp4', 8)).json()) as { audio: { url: string } };
+    const file = await voice.read(body.audio.url);
+    assert.equal(file?.type, 'audio/mp4');
+    assert.equal(file?.name, 'recording.m4a');
+    assert.equal(file?.bytes.length, 8);
+    assert.equal(await voice.read('https://elsewhere.example' + body.audio.url), undefined);
+    await voice.remove(body.audio.url);
+    assert.equal(await voice.read(body.audio.url), undefined);
+  } finally {
+    server.close();
+  }
+});

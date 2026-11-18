@@ -75,6 +75,8 @@ export interface CardOptions {
   voice?: boolean;
   /** Address the card's icons load from (the bot's public address; empty in the preview). */
   assetBase?: string;
+  /** Who reviews stories, for the Sent message ("The Foundation team" unless a pilot says otherwise). */
+  reviewTeam?: string;
 }
 
 export const fmtSeconds = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -183,7 +185,7 @@ export function buildCardJson(view: View, opts: CardOptions = {}): Record<string
     body.push(text(view.kind === 'sent' ? 'Your story' : 'Check your story', { size: 'Large', weight: 'Bolder' }));
     body.push(
       view.kind === 'sent'
-        ? banner('Sent. The Foundation team will review it before anything is used.', 'good')
+        ? banner(`Sent. ${opts.reviewTeam || 'The Foundation team'} will review it before anything is used.`, 'good')
         : banner('Nothing is sent until you tap Submit.', 'accent'),
     );
     body.push(fact('Program', v.program ?? ''));

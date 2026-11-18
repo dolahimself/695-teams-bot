@@ -5,6 +5,7 @@ import express from 'express';
 import type { Express, NextFunction, Request, Response } from 'express';
 import { TEXT_FIELDS, TextField, isTextField } from './flow';
 import type { Transcriber } from './speech';
+import type { LocalFile } from './store';
 
 /**
  * Voice answers for the story boxes.
@@ -33,7 +34,14 @@ export interface VoiceOptions {
   transcriber?: Transcriber;
   /** Folder where recordings are kept for playing back. */
   dir: string;
+  /**
+   * Let the preview fall back to the browser's own speech recognition when there is no speech service
+   * (default true). Turned off when collecting real stories: it sends the audio to Google or Apple.
+   */
+  fallback?: boolean;
 }
+
+const EXT: Record<string, string> = { 'audio/webm': 'webm', 'video/webm': 'webm', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/ogg': 'ogg', 'audio/mpeg': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav' };
 
 export function createVoice(app: Express, opts: VoiceOptions) {
   const base = opts.baseUrl.replace(/\/$/, '');
@@ -52,7 +60,10 @@ export function createVoice(app: Express, opts: VoiceOptions) {
     if (!opts.signer.valid(req.query.t)) return res.status(403).send('This link has expired. Close this window and tap the microphone again.');
     const field = req.query.field;
     if (!isTextField(field)) return res.status(400).send('Unknown question.');
-    const cfg = { field, question: TEXT_FIELDS[field].label, server: !!opts.transcriber, maxSeconds: MAX_RECORDING_SECONDS, again: req.query.again === '1' };
+    const cfg = {
+      field, question: TEXT_FIELDS[field].label, server: !!opts.transcriber, maxSeconds: MAX_RECORDING_SECONDS,
+      again: req.query.again === '1', fallback: opts.fallback !== false,
+    };
     res.type('html').send(RECORD_PAGE.replace('__CFG__', JSON.stringify(cfg).replace(/</g, '\\u003c')));
   });
 
@@ -94,7 +105,7 @@ export function createVoice(app: Express, opts: VoiceOptions) {
     if (!ID.test(id)) return res.sendStatus(404);
     try {
       const meta = JSON.parse(await fs.readFile(path.join(opts.dir, id + '.json'), 'utf8')) as { type: string };
-      res.type(meta.type).sendFile(path.resolve(opts.dir, id));
+      res.type(meta.type).sendFile(path.resolve(opts.dir, id), (err) => { if (err && !res.headersSent) res.sendStatus(404); });
     } catch {
       res.sendStatus(404);
     }
@@ -107,7 +118,33 @@ export function createVoice(app: Express, opts: VoiceOptions) {
     res.type('html').send(LISTEN_PAGE.replace('__SRC__', `${base}/recordings/${id}`));
   });
 
-  return { recordUrl, listenUrl, available: !!opts.transcriber };
+  /** The recording behind one of this server's /recordings links, or undefined for any other address. */
+  const ours = (url: string) => {
+    const m = /^(.*)\/recordings\/([0-9a-f-]{36})$/.exec(url);
+    return m && (m[1] === '' || m[1] === base) ? m[2] : undefined;
+  };
+
+  /** A kept recording, so a store can send it on when the story is submitted. */
+  const read = async (url: string): Promise<LocalFile | undefined> => {
+    const id = ours(url);
+    if (!id) return undefined;
+    try {
+      const meta = JSON.parse(await fs.readFile(path.join(opts.dir, id + '.json'), 'utf8')) as { type: string };
+      return { bytes: await fs.readFile(path.join(opts.dir, id)), type: meta.type, name: `recording.${EXT[meta.type] ?? 'webm'}` };
+    } catch {
+      return undefined;
+    }
+  };
+
+  /** Deletes a kept recording once its story is saved elsewhere. */
+  const remove = async (url: string) => {
+    const id = ours(url);
+    if (!id) return;
+    await fs.rm(path.join(opts.dir, id + '.json'), { force: true }); // first, so the link stops working before the file goes
+    await fs.rm(path.join(opts.dir, id), { force: true });
+  };
+
+  return { recordUrl, listenUrl, available: !!opts.transcriber, read, remove };
 }
 
 /** Teams cannot play sound inside a card, so the play button opens this. */
@@ -177,7 +214,7 @@ const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const canRecord = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
 // Real use sends the recording to the agency's speech service. Only the preview may fall back to the
 // browser's own recogniser, so a demo works without one.
-const how = CFG.server && canRecord ? 'server' : preview && SR ? 'browser' : null;
+const how = CFG.server && canRecord ? 'server' : preview && SR && CFG.fallback ? 'browser' : null;
 const BLOCKED = 'Microphone access is blocked. Allow it in your browser or Teams settings, or type your answer instead.';
 let rec = null, stream = null, chunks = [], timer = null, started = 0, seconds = 0, recognizer = null, closing = false;
 let clip = null; // { blob, url, seconds }: the recording, for playing back from the card

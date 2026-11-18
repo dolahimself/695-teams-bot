@@ -99,3 +99,22 @@ test('preview: an empty base address gives links relative to the server, so they
     server.close();
   }
 });
+
+test('kept photos can be read back for a store, then removed; other addresses are ignored', async () => {
+  const { base, attach, server } = await serve();
+  try {
+    const t = encodeURIComponent(attach.token());
+    const up = await fetch(`${base}/api/upload?t=${t}&name=note.png&type=image/png`, { method: 'PUT', body: new Uint8Array([5, 6, 7]) });
+    const rec = (await up.json()) as { url: string };
+    const local = rec.url.replace('http://placeholder', ''); // the same file, by its relative address
+    const file = await attach.read(rec.url);
+    assert.deepEqual(file && { ...file, bytes: [...file.bytes] }, { bytes: [5, 6, 7], type: 'image/png', name: 'note.png' });
+    assert.ok(await attach.read(local));
+    assert.equal(await attach.read('https://elsewhere.example/files/' + local.split('/')[2] + '/note.png'), undefined);
+    await attach.remove(rec.url);
+    assert.equal(await attach.read(rec.url), undefined);
+    assert.equal((await fetch(base + local)).status, 404);
+  } finally {
+    server.close();
+  }
+});

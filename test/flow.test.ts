@@ -159,7 +159,7 @@ test('GraphStore: gets a token, then creates the list item with Unreviewed statu
     return new Response(JSON.stringify({ id: '42' }), { status: 201 });
   }) as unknown as typeof fetch;
   const store = new GraphStore({ tenantId: 'T', clientId: 'C', clientSecret: 'S', siteId: 'SITE', listId: 'LIST' }, fake);
-  const id = await store.save({ program: 'Camp', whatHappened: 'a', whatChanged: 'b', files: [], startedAt: 0 }, 60_000);
+  const id = await store.save({ program: 'Camp', whatHappened: 'a', whatChanged: 'b', files: [], startedAt: 0, recordings: {} }, 60_000);
   assert.equal(id, '42');
   const item = calls.find((c) => c.url.includes('/lists/LIST/items'))!;
   const body = JSON.parse(item.init!.body as string);
@@ -183,7 +183,7 @@ test('GraphStore: uploads photos simply and big videos in chunks, one link per f
   }) as unknown as typeof fetch;
   const store = new GraphStore({ tenantId: 'T', clientId: 'C', clientSecret: 'S', siteId: 'S', listId: 'L', driveId: 'D' }, fake);
   await store.save(
-    { program: 'Camp', whatHappened: 'a', whatChanged: 'b', startedAt: 0,
+    { program: 'Camp', whatHappened: 'a', whatChanged: 'b', startedAt: 0, recordings: {},
       files: [{ name: 'p.jpg', url: 'https://src/photo' }, { name: 'v.mp4', url: 'https://src/video' }] },
     1000,
   );
@@ -417,4 +417,13 @@ test('a lost session keeps the recordings the review card carried', () => {
   const edit = (buildCardJson(review.view!) as any).actions.find((a: any) => a.title === 'Edit').data;
   const back = go(newSession(), { type: 'edit', story: edit.story });
   assert.deepEqual(back.view!.recordings.whatHappened, { url: '/recordings/1', seconds: 9, text: HAPPENED });
+});
+
+test('the submitted story carries its voice recordings, for stores that keep audio', () => {
+  const s = newSession();
+  go(s, { type: 'start' });
+  go(s, { type: 'voice', field: 'whatChanged', text: CHANGED, audio: { url: '/recordings/7', seconds: 30 }, values: { program: 'Camp', whatHappened: HAPPENED } });
+  go(s, { type: 'review', values: { program: 'Camp', whatHappened: HAPPENED, whatChanged: CHANGED } });
+  const done = go(s, { type: 'send', consent: true });
+  assert.deepEqual(done.submit!.recordings, { whatChanged: { url: '/recordings/7', seconds: 30, text: CHANGED } });
 });

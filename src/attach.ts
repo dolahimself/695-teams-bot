@@ -2,6 +2,7 @@ import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'crypto';
 import { createWriteStream, promises as fs } from 'fs';
 import type { Express, Request } from 'express';
 import * as path from 'path';
+import type { LocalFile } from './store';
 
 /**
  * Photo upload for the story card.
@@ -88,13 +89,40 @@ export function createAttach(app: Express, opts: AttachOptions) {
     if (!/^[0-9a-f-]{36}$/.test(id)) return res.sendStatus(404);
     try {
       const meta = JSON.parse(await fs.readFile(path.join(opts.dir, id + '.json'), 'utf8')) as { type: string };
-      res.type(meta.type).sendFile(path.resolve(opts.dir, id));
+      res.type(meta.type).sendFile(path.resolve(opts.dir, id), (err) => { if (err && !res.headersSent) res.sendStatus(404); });
     } catch {
       res.sendStatus(404);
     }
   });
 
-  return { attachUrl, valid, token };
+  /** The upload behind one of this server's /files links, or undefined for any other address. */
+  const ours = (url: string) => {
+    const base = opts.baseUrl.replace(/\/$/, '');
+    const m = /^(.*)\/files\/([0-9a-f-]{36})\/[^/?#]+$/.exec(url);
+    return m && (m[1] === '' || m[1] === base) ? m[2] : undefined;
+  };
+
+  /** A kept photo, so a store can send it on when the story is submitted. */
+  const read = async (url: string): Promise<LocalFile | undefined> => {
+    const id = ours(url);
+    if (!id) return undefined;
+    try {
+      const meta = JSON.parse(await fs.readFile(path.join(opts.dir, id + '.json'), 'utf8')) as { name: string; type: string };
+      return { bytes: await fs.readFile(path.join(opts.dir, id)), type: meta.type, name: meta.name };
+    } catch {
+      return undefined;
+    }
+  };
+
+  /** Deletes a kept photo once its story is saved elsewhere. */
+  const remove = async (url: string) => {
+    const id = ours(url);
+    if (!id) return;
+    await fs.rm(path.join(opts.dir, id + '.json'), { force: true }); // first, so the link stops working before the file goes
+    await fs.rm(path.join(opts.dir, id), { force: true });
+  };
+
+  return { attachUrl, valid, token, read, remove };
 }
 
 const ATTACH_PAGE = `<!doctype html>
